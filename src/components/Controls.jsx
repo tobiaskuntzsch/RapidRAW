@@ -5,7 +5,7 @@ import BasicAdjustments from './BasicAdjustments';
 import CurveGraph from './CurveGraph';
 import HSL from './HSL';
 
-export default function Controls({ adjustments, setAdjustments, processedImageUrl, selectedImage }) {
+export default function Controls({ adjustments, setAdjustments, selectedImage }) {
 
   const handleExportImage = async () => {
     if (!selectedImage) {

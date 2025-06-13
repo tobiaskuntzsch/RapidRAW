@@ -1,6 +1,5 @@
 // src-tauri/src/main.rs
 
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs;
@@ -10,39 +9,31 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, ImageFormat};
 use serde::{Serialize, Deserialize};
 use base64::{Engine as _, engine::general_purpose};
 use bytemuck::{Pod, Zeroable};
-// NEW: Import the wgpu utility for easier texture/buffer creation
 use wgpu::util::DeviceExt;
 
-// --- NEW: Define a constant for preview size ---
 const PREVIEW_WIDTH: u32 = 800;
 
-// --- GPU Context for wgpu ---
-// We'll initialize this once and reuse it.
 #[derive(Clone)]
 struct GpuContext {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
 }
 
-// --- AppState now holds GPU context and preview images ---
 struct AppState {
     original_image: Mutex<Option<DynamicImage>>,
     preview_image: Mutex<Option<DynamicImage>>,
     gpu_context: Mutex<Option<GpuContext>>,
 }
 
-// --- Structs for Frontend Communication ---
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 struct Point {
     x: f32,
     y: f32,
-    _pad1: f32,  // Padding to match WGSL alignment
-    _pad2: f32,  // Padding to match WGSL alignment
+    _pad1: f32,
+    _pad2: f32,
 }
 
-// This struct MUST match the layout in the shader.
-// `bytemuck` helps us safely cast this to bytes to send to the GPU.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 struct Adjustments {
@@ -50,16 +41,14 @@ struct Adjustments {
     contrast: f32,
     saturation: f32,
     hue: f32,
-    // WGSL requires arrays to have a fixed size. We'll pad with zero points.
-    // We also pass the number of actual points.
     curve_points: [Point; 16],
     curve_points_count: u32,
-    // Padding to meet WGSL's 16-byte alignment rule for struct members
     _p1: u32,
     _p2: u32,
     _p3: u32,
 }
 
+/// Converts frontend points to a shader-compatible padded array.
 fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point; 16] {
     let mut aligned_points = [Point { x: 0.0, y: 0.0, _pad1: 0.0, _pad2: 0.0 }; 16];
     
@@ -77,14 +66,13 @@ fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point;
     aligned_points
 }
 
-// --- Helper to lazily initialize the GPU context ---
+/// Lazily initializes and retrieves the shared wgpu context.
 fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuContext, String> {
     let mut context_lock = state.gpu_context.lock().unwrap();
     if let Some(context) = &*context_lock {
         return Ok(context.clone());
     }
 
-    // If it doesn't exist, create it.
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .ok_or("Failed to find a wgpu adapter.")?;
@@ -107,7 +95,7 @@ fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuContext,
     Ok(new_context)
 }
 
-// --- MODIFIED: load_image now creates and stores a preview ---
+/// Loads an image from a path, stores it, and creates a smaller preview version.
 #[tauri::command]
 fn load_image(path: String, state: tauri::State<AppState>) -> Result<(u32, u32), String> {
     let img = image::open(&path).map_err(|e| e.to_string())?;
@@ -120,7 +108,7 @@ fn load_image(path: String, state: tauri::State<AppState>) -> Result<(u32, u32),
     Ok(dimensions)
 }
 
-// --- REWRITTEN: The core GPU processing logic with alignment fix ---
+/// Runs the image processing compute shader on a given image with specified adjustments.
 fn run_gpu_processing(
     context: &GpuContext,
     image: &DynamicImage,
@@ -133,8 +121,6 @@ fn run_gpu_processing(
     let (width, height) = img_rgba.dimensions();
     let texture_size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
 
-    // Use a utility function to create and write the input texture.
-    // This handles alignment requirements for the initial upload automatically.
     let input_texture = device.create_texture_with_data(
         queue,
         &wgpu::TextureDescriptor {
@@ -162,14 +148,12 @@ fn run_gpu_processing(
         view_formats: &[],
     });
 
-    // Create a buffer on the GPU for our adjustment values
     let adjustments_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Adjustments Buffer"),
         contents: bytemuck::bytes_of(&adjustments),
         usage: wgpu::BufferUsages::UNIFORM,
     });
 
-    // The Compute Shader (WGSL)
     let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Image Processing Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -255,7 +239,6 @@ fn run_gpu_processing(
         compute_pass.dispatch_workgroups((width + 7) / 8, (height + 7) / 8, 1);
     }
 
-    // Calculate padded bytes per row for the output buffer.
     let unpadded_bytes_per_row = 4 * width;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
@@ -268,7 +251,6 @@ fn run_gpu_processing(
         mapped_at_creation: false,
     });
 
-    // Copy the output texture to our CPU-side buffer, using the padded layout.
     encoder.copy_texture_to_buffer(
         wgpu::ImageCopyTexture {
             texture: &output_texture,
@@ -300,7 +282,6 @@ fn run_gpu_processing(
     let padded_data = buffer_slice.get_mapped_range().to_vec();
     output_buffer.unmap();
 
-    // Strip the padding from the raw data.
     let mut unpadded_data = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
     for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
         unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
@@ -309,7 +290,7 @@ fn run_gpu_processing(
     Ok(unpadded_data)
 }
 
-// --- REWRITTEN: apply_adjustments now uses the GPU on the preview image ---
+/// Applies adjustments to the preview image and returns a base64 encoded result.
 #[tauri::command]
 fn apply_adjustments(js_adjustments: serde_json::Value, state: tauri::State<AppState>) -> Result<String, String> {
     let preview_image = {
@@ -319,13 +300,12 @@ fn apply_adjustments(js_adjustments: serde_json::Value, state: tauri::State<AppS
     
     let context = get_or_init_gpu_context(&state)?;
 
-    // Convert JS adjustments to the shader-compatible struct
     let curve_points_vec: Vec<serde_json::Value> = js_adjustments["curve_points"].as_array().cloned().unwrap_or_default();
     let curve_points_padded = convert_points_to_aligned(curve_points_vec.clone());
 
     let adjustments = Adjustments {
-        brightness: js_adjustments["brightness"].as_f64().unwrap_or(0.0) as f32 / 255.0,
-        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32,
+        brightness: js_adjustments["brightness"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 50.0,
         saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32,
         hue: js_adjustments["hue"].as_i64().unwrap_or(0) as f32,
         curve_points: curve_points_padded,
@@ -339,7 +319,6 @@ fn apply_adjustments(js_adjustments: serde_json::Value, state: tauri::State<AppS
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data")?;
 
-    // Encode to JPEG for speed and smaller payload
     let mut buf = Cursor::new(Vec::new());
     img_buf.write_to(&mut buf, ImageFormat::Jpeg).map_err(|e| e.to_string())?;
     let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
@@ -347,7 +326,7 @@ fn apply_adjustments(js_adjustments: serde_json::Value, state: tauri::State<AppS
     Ok(format!("data:image/jpeg;base64,{}", base64_str))
 }
 
-// --- NEW: Export command for full-resolution output ---
+/// Exports the full-resolution image with adjustments applied to a specified path.
 #[tauri::command]
 fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::State<AppState>) -> Result<(), String> {
     let original_image = {
@@ -357,13 +336,12 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
     
     let context = get_or_init_gpu_context(&state)?;
 
-    // Convert JS adjustments to the shader-compatible struct
     let curve_points_vec: Vec<serde_json::Value> = js_adjustments["curve_points"].as_array().cloned().unwrap_or_default();
     let curve_points_padded = convert_points_to_aligned(curve_points_vec.clone());
 
     let adjustments = Adjustments {
-        brightness: js_adjustments["brightness"].as_f64().unwrap_or(0.0) as f32 / 255.0,
-        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32,
+        brightness: js_adjustments["brightness"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 50.0,
         saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32,
         hue: js_adjustments["hue"].as_i64().unwrap_or(0) as f32,
         curve_points: curve_points_padded,
@@ -381,7 +359,7 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
     Ok(())
 }
 
-// list_images_in_dir remains the same
+/// Lists all supported image files in a given directory path.
 #[tauri::command]
 fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
     let entries = fs::read_dir(path)

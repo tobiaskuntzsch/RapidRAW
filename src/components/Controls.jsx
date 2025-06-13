@@ -1,5 +1,3 @@
-// src/components/Controls.jsx
-
 import { save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { Save } from 'lucide-react';
@@ -9,7 +7,6 @@ import HSL from './HSL';
 
 export default function Controls({ adjustments, setAdjustments, processedImageUrl, selectedImage }) {
 
-  // Renamed to handleExportImage for clarity
   const handleExportImage = async () => {
     if (!selectedImage) {
       alert("Please select an image to export.");
@@ -17,13 +14,12 @@ export default function Controls({ adjustments, setAdjustments, processedImageUr
     }
 
     try {
-      // Suggest a filename for the user
       const originalFilename = selectedImage.path.split(/[\\/]/).pop();
       const [name] = originalFilename.split('.');
       
       const filePath = await save({
         title: "Save Edited Image",
-        defaultPath: `${name}_edited.png`, // User can still choose other formats
+        defaultPath: `${name}_edited.png`,
         filters: [{ 
           name: 'PNG Image', 
           extensions: ['png'] 
@@ -34,14 +30,10 @@ export default function Controls({ adjustments, setAdjustments, processedImageUr
       });
 
       if (filePath) {
-        // --- THIS IS THE KEY CHANGE ---
-        // Call the new `export_image` command on the backend.
-        // We send the desired path and the final adjustment values.
-        // The backend will process the FULL-RESOLUTION image.
         try {
           await invoke('export_image', { 
             path: filePath, 
-            jsAdjustments: adjustments // Send the whole adjustments object
+            jsAdjustments: adjustments
           });
           alert(`Image saved to ${filePath}`);
         } catch (error) {
@@ -51,7 +43,6 @@ export default function Controls({ adjustments, setAdjustments, processedImageUr
       }
     } catch (error) {
       console.error('Dialog error:', error);
-      // This can happen if the user cancels the dialog, so a silent fail is okay.
     }
   };
 
@@ -61,7 +52,7 @@ export default function Controls({ adjustments, setAdjustments, processedImageUr
         <h2 className="panel-title mb-0">Adjustments</h2>
         <button
           onClick={handleExportImage}
-          disabled={!selectedImage} // Disable if no image is selected
+          disabled={!selectedImage}
           className="btn bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-500 disabled:cursor-not-allowed"
         >
           <Save size={18} /> Export

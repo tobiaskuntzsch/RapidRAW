@@ -23,7 +23,7 @@ struct Adjustments {
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var<uniform> adjustments: Adjustments;
 
-// Helper function to convert RGB to HSV
+// Converts a color from RGB to HSV color space.
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
     let c_max = max(c.r, max(c.g, c.b));
     let c_min = min(c.r, min(c.g, c.b));
@@ -39,7 +39,7 @@ fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(h, s, c_max);
 }
 
-// Helper function to convert HSV to RGB
+// Converts a color from HSV to RGB color space.
 fn hsv_to_rgb(c: vec3<f32>) -> vec3<f32> {
     let h = c.x; let s = c.y; let v = c.z;
     let C = v * s;
@@ -55,7 +55,7 @@ fn hsv_to_rgb(c: vec3<f32>) -> vec3<f32> {
     return rgb_prime + vec3<f32>(m, m, m);
 }
 
-// Helper for interpolation logic
+// Linearly interpolates between two points on the curve.
 fn interpolate(x: f32, p1: Point, p2: Point) -> f32 {
     var result_y: f32;
     if (abs(p1.x - p2.x) < 0.001) {
@@ -67,17 +67,14 @@ fn interpolate(x: f32, p1: Point, p2: Point) -> f32 {
     return clamp(result_y / 255.0, 0.0, 1.0);
 }
 
-// --- THE CORRECT `apply_curve` FUNCTION ---
+// Applies the RGB curve adjustment to a single color channel value.
 fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
     if (count < 2u) {
         if (count == 1u) { return clamp(points[0].y / 255.0, 0.0, 1.0); }
         return val;
     }
 
-    // THE FIX: Copy the uniform array to a local `var` array.
-    // This local array CAN be indexed with a variable.
     var local_points: array<Point, 16>;
-    // The copy itself must use constant indices, so we unroll it.
     local_points[0] = points[0];
     local_points[1] = points[1];
     local_points[2] = points[2];
@@ -97,30 +94,24 @@ fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
 
     let x = val * 255.0;
 
-    // Handle lower boundary
     if (x <= local_points[0].x) {
         return clamp(local_points[0].y / 255.0, 0.0, 1.0);
     }
 
-    // Now we can use a clean loop because we are indexing `local_points`, a `var`.
     for (var i: u32 = 0u; i < 15u; i = i + 1u) {
-        // Stop if we're past the last valid segment
         if (i + 1u >= count) {
-            // Clamp to the last valid point's y-value
             return clamp(local_points[i].y / 255.0, 0.0, 1.0);
         }
 
-        // Indexing with `i` and `i+1` is now VALID on `local_points`
         if (x <= local_points[i + 1u].x) {
             return interpolate(x, local_points[i], local_points[i + 1u]);
         }
     }
 
-    // If the loop finishes, x is larger than all points. Clamp to the last one.
     return clamp(local_points[15].y / 255.0, 0.0, 1.0);
 }
 
-// The main entry point for the shader
+// The main entry point for the compute shader.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let pixel_coords = vec2<i32>(i32(id.x), i32(id.y));

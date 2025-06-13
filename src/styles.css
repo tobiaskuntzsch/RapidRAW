@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg-primary text-text-primary font-sans;
+  }
+  /* Style for the scrollbar to match the dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: theme('colors.bg-secondary');
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.surface');
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+}
+
+@layer components {
+  /* Main Panels */
+  .panel-left {
+    @apply w-64 bg-bg-secondary p-4 flex flex-col border-r border-border-color;
+  }
+  .panel-right {
+    @apply w-80 bg-bg-secondary flex flex-col border-l border-border-color;
+  }
+  .panel-center {
+    @apply flex-1 bg-bg-primary flex flex-col relative;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply flex items-center justify-center gap-2 font-semibold py-2 px-4 rounded-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-icon {
+    @apply bg-surface bg-opacity-60 hover:bg-opacity-90 text-text-primary p-2 rounded-md transition-colors duration-200;
+  }
+
+  /* Text and Titles */
+  .panel-title {
+    @apply text-xl font-bold mb-4 text-text-primary;
+  }
+  .section-title {
+    @apply text-lg font-semibold mb-3 text-text-primary;
+  }
+  .label {
+    @apply block text-sm font-medium text-text-secondary;
+  }
+
+  /* Interactive Elements */
+  .library-item {
+    @apply p-2 hover:bg-surface cursor-pointer rounded-md flex items-center gap-3 transition-colors duration-150;
+  }
+  .library-item-icon {
+    @apply text-text-secondary;
+  }
+  .library-item-text {
+    @apply truncate text-sm text-text-primary;
+  }
+
+  /* Sliders */
+  .slider-container {
+    @apply mb-4;
+  }
+  .slider-wrapper {
+    @apply flex items-center gap-4;
+  }
+  .slider-track {
+    @apply w-full h-2 bg-surface rounded-full appearance-none cursor-pointer;
+  }
+  .slider-value {
+    @apply text-sm text-text-primary w-12 text-center;
+  }
+
+  /* Section Dividers */
+  .section {
+    @apply p-4 border-b border-border-color;
+  }
+}

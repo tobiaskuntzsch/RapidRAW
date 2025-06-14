@@ -9,10 +9,27 @@ import Editor from './components/Editor';
 import Controls from './components/Controls';
 
 const INITIAL_ADJUSTMENTS = {
-  brightness: 0,
+  exposure: 0,
   contrast: 0,
+  highlights: 0,
+  shadows: 0,
+  whites: 0,
+  blacks: 0,
   saturation: 0,
   hue: 0,
+  temperature: 0,
+  tint: 0,
+  vibrance: 0,
+  hsl: {
+    reds: { hue: 0, saturation: 0, luminance: 0 },
+    oranges: { hue: 0, saturation: 0, luminance: 0 },
+    yellows: { hue: 0, saturation: 0, luminance: 0 },
+    greens: { hue: 0, saturation: 0, luminance: 0 },
+    aquas: { hue: 0, saturation: 0, luminance: 0 },
+    blues: { hue: 0, saturation: 0, luminance: 0 },
+    purples: { hue: 0, saturation: 0, luminance: 0 },
+    magentas: { hue: 0, saturation: 0, luminance: 0 },
+  },
   curve_points: [
     { x: 0, y: 0 },
     { x: 128, y: 128 },
@@ -84,7 +101,7 @@ function App() {
       setFinalPreviewUrl(originalUrl);
       setShowOriginal(false);
 
-    } catch (error) {
+    } catch (error) { // FIX: Removed the incorrect "=>"
       console.error("Failed to load image:", error);
       setError(`Failed to load image: ${error}`);
       setSelectedImage(null);

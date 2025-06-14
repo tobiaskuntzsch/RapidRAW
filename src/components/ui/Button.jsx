@@ -8,7 +8,7 @@ const Button = ({ children, onClick, disabled, className = '', ...props }) => {
     font-semibold py-2 px-4 rounded-md 
     bg-accent text-bg-primary shadow-shiny 
     transition-transform duration-200 
-    hover:scale-[1.02] active:scale-[.97]
+    hover:scale-[1.01] active:scale-[.98]
     disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:scale-100
   `;
   // Combine the base classes with any classes passed in via props.

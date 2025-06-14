@@ -1,48 +1,114 @@
-// This Slider component is defined locally. We'll style it to match the others.
-const Slider = ({ label, value, onChange, min, max, step }) => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-text-secondary">{label}</label>
-      <div className="flex items-center gap-4 mt-1">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={onChange}
-          className="w-full h-2 bg-surface rounded-full appearance-none cursor-pointer"
-        />
-        <span className="text-sm text-text-primary w-12 text-center">{value}</span>
-      </div>
-    </div>
-  );
+import { useState } from 'react';
+import Slider from './ui/Slider';
 
-export default function HSL({ adjustments, setAdjustments }) {
-    const handleAdjustmentChange = (key, value) => {
-        setAdjustments(prev => ({ ...prev, [key]: value }));
+const ColorSwatch = ({ color, name, isActive, onClick }) => (
+    <button
+        onClick={() => onClick(name)}
+        className={`w-6 h-6 rounded-full focus:outline-none transition-transform duration-150 ${isActive ? 'ring-2 ring-accent ring-offset-2 ring-offset-bg-secondary transform scale-110' : 'hover:scale-110'}`}
+        style={{ backgroundColor: color }}
+        aria-label={`Select ${name} color`}
+    />
+);
+
+const HSL_COLORS = [
+    { name: 'reds', color: '#f87171' },
+    { name: 'oranges', color: '#fb923c' },
+    { name: 'yellows', color: '#facc15' },
+    { name: 'greens', color: '#4ade80' },
+    { name: 'aquas', color: '#2dd4bf' },
+    { name: 'blues', color: '#60a5fa' },
+    { name: 'purples', color: '#a78bfa' },
+    { name: 'magentas', color: '#f472b6' },
+];
+
+export default function ColorPanel({ adjustments, setAdjustments }) {
+    const [activeColor, setActiveColor] = useState('reds');
+
+    const handleGlobalChange = (key, value) => {
+        setAdjustments(prev => ({ ...prev, [key]: parseFloat(value) }));
     };
 
+    const handleHslChange = (property, value) => {
+        setAdjustments(prev => ({
+            ...prev,
+            hsl: {
+                ...(prev.hsl || {}),
+                [activeColor]: {
+                    ...(prev.hsl?.[activeColor] || {}),
+                    [property]: parseFloat(value),
+                },
+            },
+        }));
+    };
+    
+    const currentHsl = adjustments.hsl?.[activeColor] || { hue: 0, saturation: 0, luminance: 0 };
+
     return (
-        // This is the last section, so no bottom border needed.
-        <div className="pt-4"> 
-            {/* Styled the title to be shiny */}
-            <h3 className="text-lg font-bold mb-3 text-accent">Color</h3>
-            <Slider
-                label="Hue"
-                value={adjustments.hue}
-                onChange={(e) => handleAdjustmentChange('hue', parseInt(e.target.value))}
-                min="-180"
-                max="180"
-                step="1"
-            />
-            <Slider
-                label="Saturation"
-                value={adjustments.saturation}
-                onChange={(e) => handleAdjustmentChange('saturation', parseFloat(e.target.value))}
-                min="-1"
-                max="1"
-                step="0.05"
-            />
+        <div> 
+            <div className="mb-4 p-2 bg-bg-tertiary rounded-md">
+                <p className="text-md font-semibold mb-2 text-accent">White Balance</p>
+                <Slider
+                    label="Temperature"
+                    value={adjustments.temperature || 0}
+                    onChange={(e) => handleGlobalChange('temperature', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+                <Slider
+                    label="Tint"
+                    value={adjustments.tint || 0}
+                    onChange={(e) => handleGlobalChange('tint', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+            </div>
+
+            <div className="mb-4 p-2 bg-bg-tertiary rounded-md">
+                <p className="text-md font-semibold mb-2 text-accent">Presence</p>
+                <Slider
+                    label="Vibrance"
+                    value={adjustments.vibrance || 0}
+                    onChange={(e) => handleGlobalChange('vibrance', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+                <Slider
+                    label="Saturation"
+                    value={adjustments.saturation || 0}
+                    onChange={(e) => handleGlobalChange('saturation', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+            </div>
+
+            <div className="p-2 bg-bg-tertiary rounded-md">
+                <p className="text-md font-semibold mb-3 text-accent">Color Mixer</p>
+                <div className="flex justify-between mb-4 px-1">
+                    {HSL_COLORS.map(({ name, color }) => (
+                        <ColorSwatch
+                            key={name}
+                            name={name}
+                            color={color}
+                            isActive={activeColor === name}
+                            onClick={setActiveColor}
+                        />
+                    ))}
+                </div>
+                <Slider
+                    label="Hue"
+                    value={currentHsl.hue}
+                    onChange={(e) => handleHslChange('hue', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+                <Slider
+                    label="Saturation"
+                    value={currentHsl.saturation}
+                    onChange={(e) => handleHslChange('saturation', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+                <Slider
+                    label="Luminance"
+                    value={currentHsl.luminance}
+                    onChange={(e) => handleHslChange('luminance', e.target.value)}
+                    min="-100" max="100" step="1"
+                />
+            </div>
         </div>
     );
 }

@@ -12,7 +12,7 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 use tauri::Emitter;
 
-const QUICK_PREVIEW_WIDTH: u32 = 640;
+const QUICK_PREVIEW_WIDTH: u32 = 720;
 const FINAL_PREVIEW_WIDTH: u32 = 1280;
 
 #[derive(Clone)]
@@ -39,11 +39,33 @@ struct Point {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
-struct Adjustments {
-    brightness: f32,
-    contrast: f32,
-    saturation: f32,
+struct HslColor {
     hue: f32,
+    saturation: f32,
+    luminance: f32,
+    _pad: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct Adjustments {
+    // Group 1 (vec4)
+    exposure: f32,
+    contrast: f32,
+    highlights: f32,
+    shadows: f32,
+    // Group 2 (vec4)
+    whites: f32,
+    blacks: f32,
+    saturation: f32,
+    temperature: f32,
+    // Group 3 (vec4)
+    tint: f32,
+    vibrance: f32,
+    _pad1: f32,
+    _pad2: f32,
+    // HSL and Curves
+    hsl: [HslColor; 8],
     curve_points: [Point; 16],
     curve_points_count: u32,
     _p1: u32,
@@ -51,6 +73,59 @@ struct Adjustments {
     _p3: u32,
 }
 
+fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
+    let mut hsl_array = [HslColor { hue: 0.0, saturation: 0.0, luminance: 0.0, _pad: 0.0 }; 8];
+    if let Some(hsl_map) = js_hsl.as_object() {
+        let color_map = [
+            ("reds", 0), ("oranges", 1), ("yellows", 2), ("greens", 3),
+            ("aquas", 4), ("blues", 5), ("purples", 6), ("magentas", 7),
+        ];
+
+        for (name, index) in color_map.iter() {
+            if let Some(color_data) = hsl_map.get(*name) {
+                hsl_array[*index] = HslColor {
+                    hue: color_data["hue"].as_f64().unwrap_or(0.0) as f32 * 0.3,
+                    saturation: color_data["saturation"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+                    luminance: color_data["luminance"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+                    _pad: 0.0,
+                };
+            }
+        }
+    }
+    hsl_array
+}
+
+fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustments {
+    let curve_points_vec: Vec<serde_json::Value> = js_adjustments["curve_points"].as_array().cloned().unwrap_or_default();
+    
+    // Normalize slider values from [-100, 100] to a smaller, more effective range for the shader.
+    // A larger divisor means a more subtle effect.
+    Adjustments {
+        // Exposure is a strong effect, so we scale it to [-1.0, 1.0]
+        exposure: js_adjustments["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        // Other effects are more subtle. We scale them to a [-0.5, 0.5] range.
+        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        highlights: js_adjustments["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        shadows: js_adjustments["shadows"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        whites: js_adjustments["whites"].as_f64().unwrap_or(0.0) as f32 / 300.0,
+        blacks: js_adjustments["blacks"].as_f64().unwrap_or(0.0) as f32 / 300.0,
+        
+        // These were already scaled reasonably
+        saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        temperature: js_adjustments["temperature"].as_f64().unwrap_or(0.0) as f32 / 500.0,
+        tint: js_adjustments["tint"].as_f64().unwrap_or(0.0) as f32 / 500.0,
+        vibrance: js_adjustments["vibrance"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        
+        _pad1: 0.0,
+        _pad2: 0.0,
+        hsl: parse_hsl_adjustments(&js_adjustments.get("hsl").cloned().unwrap_or_default()),
+        curve_points: convert_points_to_aligned(curve_points_vec.clone()),
+        curve_points_count: curve_points_vec.len() as u32,
+        _p1: 0, _p2: 0, _p3: 0,
+    }
+}
+
+// ... (The rest of the file remains unchanged)
 fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point; 16] {
     let mut aligned_points = [Point { x: 0.0, y: 0.0, _pad1: 0.0, _pad2: 0.0 }; 16];
     for (i, point) in frontend_points.iter().enumerate().take(16) {
@@ -257,22 +332,13 @@ fn apply_adjustments(
     let quick_preview = state.quick_preview_image.lock().unwrap().clone().ok_or("No quick preview image loaded")?;
     let final_preview = state.final_preview_image.lock().unwrap().clone().ok_or("No final preview image loaded")?;
 
-    let curve_points_vec: Vec<serde_json::Value> = js_adjustments["curve_points"].as_array().cloned().unwrap_or_default();
-    let adjustments = Adjustments {
-        brightness: js_adjustments["brightness"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 50.0,
-        saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32,
-        hue: js_adjustments["hue"].as_i64().unwrap_or(0) as f32,
-        curve_points: convert_points_to_aligned(curve_points_vec.clone()),
-        curve_points_count: curve_points_vec.len() as u32,
-        _p1: 0, _p2: 0, _p3: 0,
-    };
+    let adjustments = get_adjustments_from_json(&js_adjustments);
 
     thread::spawn(move || {
-        if let Ok(base64_str) = process_and_encode_image(&context, &quick_preview, adjustments, 50) {
+        if let Ok(base64_str) = process_and_encode_image(&context, &quick_preview, adjustments, 60) {
             app_handle.emit("preview-update-quick", base64_str).unwrap();
         }
-        if let Ok(base64_str) = process_and_encode_image(&context, &final_preview, adjustments, 80) {
+        if let Ok(base64_str) = process_and_encode_image(&context, &final_preview, adjustments, 85) {
             app_handle.emit("preview-update-final", base64_str).unwrap();
         }
     });
@@ -287,16 +353,9 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
         lock.clone().ok_or("No original image loaded")?
     };
     let context = get_or_init_gpu_context(&state)?;
-    let curve_points_vec: Vec<serde_json::Value> = js_adjustments["curve_points"].as_array().cloned().unwrap_or_default();
-    let adjustments = Adjustments {
-        brightness: js_adjustments["brightness"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-        contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 50.0,
-        saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32,
-        hue: js_adjustments["hue"].as_i64().unwrap_or(0) as f32,
-        curve_points: convert_points_to_aligned(curve_points_vec.clone()),
-        curve_points_count: curve_points_vec.len() as u32,
-        _p1: 0, _p2: 0, _p3: 0,
-    };
+    
+    let adjustments = get_adjustments_from_json(&js_adjustments);
+
     let processed_pixels = run_gpu_processing(&context, &original_image, adjustments)?;
     let (width, height) = original_image.dimensions();
     let final_image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)

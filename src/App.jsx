@@ -1,3 +1,5 @@
+// App.jsx
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -26,6 +28,7 @@ const INITIAL_ADJUSTMENTS = {
   },
 };
 
+
 function App() {
   const [rootPath, setRootPath] = useState(null);
   const [currentFolderPath, setCurrentFolderPath] = useState(null);
@@ -44,6 +47,10 @@ function App() {
   const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true);
   const [loadingTimeout, setLoadingTimeout] = useState(null);
   const [isAdjusting, setIsAdjusting] = useState(false);
+
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isFullScreenLoading, setIsFullScreenLoading] = useState(false);
+  const [fullScreenUrl, setFullScreenUrl] = useState(null);
 
   const { thumbnails } = useThumbnails(imageList);
 
@@ -81,7 +88,7 @@ function App() {
   }, [loadingTimeout]);
 
   const applyAdjustments = useCallback(debounce((currentAdjustments) => {
-    if (!selectedImage) return;
+    if (!selectedImage?.isReady) return;
     setIsAdjusting(true);
     setError(null);
     invoke('apply_adjustments', { jsAdjustments: currentAdjustments }).catch(err => {
@@ -95,7 +102,7 @@ function App() {
   }, 200), [selectedImage]);
 
   useEffect(() => {
-    if (selectedImage) {
+    if (selectedImage?.isReady) {
       applyAdjustments(adjustments);
     }
     return () => applyAdjustments.cancel();
@@ -161,28 +168,40 @@ function App() {
 
   const handleImageSelect = async (path) => {
     if (selectedImage?.path === path) return;
-    if (loaderTimeoutRef.current) clearTimeout(loaderTimeoutRef.current);
-    loaderTimeoutRef.current = setTimeout(() => setIsViewLoading(true), 150);
+
+    applyAdjustments.cancel();
+
+    setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0 });
+    setIsViewLoading(true);
+    setError(null);
+    setHistogram(null);
+    setQuickPreviewUrl(null);
+    setFinalPreviewUrl(null);
+    setAdjustments(INITIAL_ADJUSTMENTS);
+    setShowOriginal(false);
 
     try {
-      setError(null);
-      setHistogram(null);
-      setQuickPreviewUrl(null);
-      setFinalPreviewUrl(null);
-
       const loadImageResult = await invoke('load_image', { path });
       const histData = await invoke('generate_histogram');
-      setHistogram(histData);
       
-      setSelectedImage({ path, originalUrl: loadImageResult.original_base64 });
-      setAdjustments(INITIAL_ADJUSTMENTS);
-      setShowOriginal(false);
+      setSelectedImage(currentSelected => {
+        if (currentSelected && currentSelected.path === path) {
+          setHistogram(histData);
+          return { 
+            ...currentSelected, 
+            originalUrl: loadImageResult.original_base64,
+            width: loadImageResult.width,
+            height: loadImageResult.height,
+            isReady: true 
+          };
+        }
+        return currentSelected;
+      });
     } catch (err) {
       console.error("Failed to load image:", err);
       setError(`Failed to load image: ${err}`);
       setSelectedImage(null);
     } finally {
-      if (loaderTimeoutRef.current) clearTimeout(loaderTimeoutRef.current);
       setIsViewLoading(false);
     }
   };
@@ -192,6 +211,25 @@ function App() {
     setFinalPreviewUrl(null);
     setQuickPreviewUrl(null);
     setHistogram(null);
+  };
+
+  const handleToggleFullScreen = async () => {
+    if (isFullScreen) {
+      setIsFullScreen(false);
+      setFullScreenUrl(null);
+    } else {
+      setIsFullScreenLoading(true);
+      try {
+        const url = await invoke('generate_fullscreen_preview', { jsAdjustments: adjustments });
+        setFullScreenUrl(url);
+        setIsFullScreen(true);
+      } catch (e) {
+        console.error("Failed to generate fullscreen preview:", e);
+        setError("Failed to generate full screen preview.");
+      } finally {
+        setIsFullScreenLoading(false);
+      }
+    }
   };
 
   return (
@@ -223,6 +261,10 @@ function App() {
               isAdjusting={isAdjusting}
               onBackToLibrary={handleBackToLibrary}
               isLoading={isViewLoading}
+              isFullScreen={isFullScreen}
+              isFullScreenLoading={isFullScreenLoading}
+              fullScreenUrl={fullScreenUrl}
+              onToggleFullScreen={handleToggleFullScreen}
             />
             <Filmstrip
               imageList={imageList}

@@ -9,7 +9,7 @@ use std::io::Cursor;
 use std::sync::Mutex;
 use std::thread;
 
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, imageops::FilterType};
 use tauri::Emitter;
 use base64::{Engine as _, engine::general_purpose};
 
@@ -24,7 +24,6 @@ pub struct AppState {
     gpu_context: Mutex<Option<GpuContext>>,
 }
 
-// NEW: A struct to define the return type for load_image
 #[derive(serde::Serialize)]
 struct LoadImageResult {
     original_base64: String,
@@ -32,7 +31,6 @@ struct LoadImageResult {
     height: u32,
 }
 
-// NEW: Reusable helper function to encode a DynamicImage to a base64 JPEG string
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
     let mut buf = Cursor::new(Vec::new());
     image.write_to(&mut buf, image::ImageOutputFormat::Jpeg(quality))
@@ -42,21 +40,35 @@ fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String>
 }
 
 #[tauri::command]
-fn load_image(path: String, state: tauri::State<AppState>) -> Result<LoadImageResult, String> {
+async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<LoadImageResult, String> {
     let img = image::open(&path).map_err(|e| e.to_string())?;
     let (orig_width, orig_height) = img.dimensions();
 
-    // Generate the base64 for the original image to send to the frontend
-    let original_base64 = encode_to_base64(&img, 90)?;
+    const DISPLAY_PREVIEW_DIM: u32 = 1080;
+    const FINAL_PREVIEW_MAX_DIM: u32 = 2160;
 
-    let mut quick_width = orig_width / 3;
-    let mut quick_height = orig_height / 3;
+    let ((original_base64_result, quick_preview), final_preview) = rayon::join(
+        || rayon::join(
+            || {
+                let preview = img.thumbnail(DISPLAY_PREVIEW_DIM, DISPLAY_PREVIEW_DIM);
+                encode_to_base64(&preview, 85)
+            },
+            || {
+                let new_width = (orig_width / 3).max(1);
+                let new_height = (orig_height / 3).max(1);
+                img.resize(new_width, new_height, FilterType::Triangle)
+            }
+        ),
+        || {
+            if orig_width > FINAL_PREVIEW_MAX_DIM || orig_height > FINAL_PREVIEW_MAX_DIM {
+                img.thumbnail(FINAL_PREVIEW_MAX_DIM, FINAL_PREVIEW_MAX_DIM)
+            } else {
+                img.clone()
+            }
+        }
+    );
 
-    quick_width = quick_width.clamp(480, 1080);
-    quick_height = quick_height.clamp(480, 1080);
-
-    let quick_preview = img.resize(quick_width, quick_height, image::imageops::FilterType::Lanczos3);
-    let final_preview = img.clone();
+    let original_base64 = original_base64_result?;
 
     *state.original_image.lock().unwrap() = Some(img);
     *state.quick_preview_image.lock().unwrap() = Some(quick_preview);
@@ -80,7 +92,6 @@ fn process_and_encode_image(
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data")?;
     
-    // Use our new helper function here as well for consistency
     encode_to_base64(&DynamicImage::ImageRgba8(img_buf), quality)
 }
 
@@ -107,6 +118,19 @@ fn apply_adjustments(
 
     Ok(())
 }
+
+#[tauri::command]
+fn generate_fullscreen_preview(
+    js_adjustments: serde_json::Value,
+    state: tauri::State<AppState>,
+) -> Result<String, String> {
+    let context = get_or_init_gpu_context(&state)?;
+    let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+    let adjustments = get_adjustments_from_json(&js_adjustments);
+
+    process_and_encode_image(&context, &original_image, adjustments, 90)
+}
+
 
 #[tauri::command]
 fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::State<AppState>) -> Result<(), String> {
@@ -140,11 +164,12 @@ fn main() {
             load_image,
             apply_adjustments,
             export_image,
+            generate_fullscreen_preview,
             image_processing::generate_histogram,
             image_processing::generate_processed_histogram,
             file_management::list_images_in_dir,
             file_management::get_folder_tree,
-            file_management::generate_thumbnails,
+            file_management::generate_thumbnails, 
             file_management::generate_thumbnails_progressive
         ])
         .run(tauri::generate_context!())

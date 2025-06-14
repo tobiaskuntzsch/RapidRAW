@@ -167,17 +167,17 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
 
           <line x1="0" y1="255" x2="255" y2="0" stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="2 2" />
 
-          <path d={getCurvePath(points)} fill="none" stroke={color} strokeWidth="1.5" />
+          <path d={getCurvePath(points)} fill="none" stroke={color} strokeWidth="2.5" />
 
           {points.map((p, i) => (
             <circle
               key={i}
               cx={p.x}
               cy={255 - p.y}
-              r="4"
+              r="6"
               fill={color}
               stroke="#1e1e1e"
-              strokeWidth="1.5"
+              strokeWidth="2"
               className="cursor-pointer"
               onMouseDown={(e) => handlePointMouseDown(e, i)}
               onContextMenu={(e) => handlePointContextMenu(e, i)}

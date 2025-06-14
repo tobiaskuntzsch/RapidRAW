@@ -8,7 +8,7 @@ use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::AppState;
 
-// --- Adjustment Data Structures and Parsing ---
+// --- Adjustment Data Structures and Parsing (Unchanged) ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
@@ -122,6 +122,7 @@ pub fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustme
 pub struct GpuContext {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
+    pub limits: Arc<wgpu::Limits>,
 }
 
 pub fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuContext, String> {
@@ -132,17 +133,74 @@ pub fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuCont
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .ok_or("Failed to find a wgpu adapter.")?;
+    
+    let limits = adapter.limits();
+
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: Some("Processing Device"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
+            required_limits: limits.clone(),
         },
         None,
     )).map_err(|e| e.to_string())?;
-    let new_context = GpuContext { device: Arc::new(device), queue: Arc::new(queue) };
+
+    let new_context = GpuContext { 
+        device: Arc::new(device), 
+        queue: Arc::new(queue),
+        limits: Arc::new(limits),
+    };
     *context_lock = Some(new_context.clone());
     Ok(new_context)
+}
+
+fn read_texture_data(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    size: wgpu::Extent3d,
+) -> Result<Vec<u8>, String> {
+    let unpadded_bytes_per_row = 4 * size.width;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+    let output_buffer_size = (padded_bytes_per_row * size.height) as u64;
+
+    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Readback Buffer"),
+        size: output_buffer_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Readback Encoder") });
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::ImageCopyBuffer {
+            buffer: &output_buffer,
+            layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(padded_bytes_per_row), rows_per_image: Some(size.height) },
+        },
+        size,
+    );
+
+    queue.submit(Some(encoder.finish()));
+    let buffer_slice = output_buffer.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    buffer_slice.map_async(wgpu::MapMode::Read, move |result| { tx.send(result).unwrap(); });
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().map_err(|e| e.to_string())?;
+
+    let padded_data = buffer_slice.get_mapped_range().to_vec();
+    output_buffer.unmap();
+
+    if padded_bytes_per_row == unpadded_bytes_per_row {
+        Ok(padded_data)
+    } else {
+        let mut unpadded_data = Vec::with_capacity((unpadded_bytes_per_row * size.height) as usize);
+        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
+            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
+        }
+        Ok(unpadded_data)
+    }
 }
 
 pub fn run_gpu_processing(
@@ -152,25 +210,8 @@ pub fn run_gpu_processing(
 ) -> Result<Vec<u8>, String> {
     let device = &context.device;
     let queue = &context.queue;
-    let img_rgba = image.to_rgba8();
-    let (width, height) = img_rgba.dimensions();
-    let texture_size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-
-    let input_texture = device.create_texture_with_data(
-        queue,
-        &wgpu::TextureDescriptor {
-            label: Some("Input Texture"), size: texture_size, mip_level_count: 1, sample_count: 1,
-            dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
-        },
-        TextureDataOrder::MipMajor, &img_rgba,
-    );
-
-    let output_texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Output Texture"), size: texture_size, mip_level_count: 1, sample_count: 1,
-        dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
-    });
+    let (width, height) = image.dimensions();
+    let max_dim = context.limits.max_texture_dimension_2d;
 
     let adjustments_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Adjustments Buffer"),
@@ -211,15 +252,6 @@ pub fn run_gpu_processing(
         ],
     });
 
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Bind Group"), layout: &bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) },
-            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) },
-            wgpu::BindGroupEntry { binding: 2, resource: adjustments_buffer.as_entire_binding() },
-        ],
-    });
-
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Pipeline Layout"),
         bind_group_layouts: &[&bind_group_layout],
@@ -231,52 +263,170 @@ pub fn run_gpu_processing(
         module: &shader_module, entry_point: "main",
     });
 
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
-        compute_pass.set_pipeline(&compute_pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
-        compute_pass.dispatch_workgroups((width + 7) / 8, (height + 7) / 8, 1);
+    if width <= max_dim && height <= max_dim {
+        let img_rgba = image.to_rgba8();
+        let texture_size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+
+        let input_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Input Texture"), size: texture_size, mip_level_count: 1, sample_count: 1,
+                dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
+            },
+            TextureDataOrder::MipMajor, &img_rgba,
+        );
+
+        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Output Texture"), size: texture_size, mip_level_count: 1, sample_count: 1,
+            dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Single Texture Bind Group"), layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) },
+                wgpu::BindGroupEntry { binding: 2, resource: adjustments_buffer.as_entire_binding() },
+            ],
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
+            compute_pass.set_pipeline(&compute_pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups((width + 7) / 8, (height + 7) / 8, 1);
+        }
+        
+        queue.submit(Some(encoder.finish()));
+        return read_texture_data(device, queue, &output_texture, texture_size);
     }
 
-    let unpadded_bytes_per_row = 4 * width;
-    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-    let output_buffer_size = (padded_bytes_per_row * height) as u64;
+    let tile_size = (max_dim / 2).min(2048);
+    let img_rgba = image.to_rgba8();
+    let mut final_pixels = vec![0u8; (width * height * 4) as usize];
 
-    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Output Buffer"), size: output_buffer_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let tiles_x = (width + tile_size - 1) / tile_size;
+    let tiles_y = (height + tile_size - 1) / tile_size;
 
-    encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture { texture: &output_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-        wgpu::ImageCopyBuffer {
-            buffer: &output_buffer,
-            layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(padded_bytes_per_row), rows_per_image: Some(height) },
-        },
-        texture_size,
-    );
+    for tile_y in 0..tiles_y {
+        for tile_x in 0..tiles_x {
+            let x_start = tile_x * tile_size;
+            let y_start = tile_y * tile_size;
+            let x_end = (x_start + tile_size).min(width);
+            let y_end = (y_start + tile_size).min(height);
+            
+            let tile_width = x_end - x_start;
+            let tile_height = y_end - y_start;
 
-    queue.submit(Some(encoder.finish()));
-    let buffer_slice = output_buffer.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    buffer_slice.map_async(wgpu::MapMode::Read, move |result| { tx.send(result).unwrap(); });
-    device.poll(wgpu::Maintain::Wait);
-    rx.recv().unwrap().map_err(|e| e.to_string())?;
+            let mut tile_pixels = Vec::with_capacity((tile_width * tile_height * 4) as usize);
+            
+            for y in y_start..y_end {
+                for x in x_start..x_end {
+                    if x < width && y < height {
+                        let pixel = img_rgba.get_pixel(x, y);
+                        tile_pixels.extend_from_slice(&pixel.0);
+                    } else {
+                        tile_pixels.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+            }
+            
+            let texture_size = wgpu::Extent3d { 
+                width: tile_width, 
+                height: tile_height, 
+                depth_or_array_layers: 1 
+            };
 
-    let padded_data = buffer_slice.get_mapped_range().to_vec();
-    output_buffer.unmap();
+            let input_texture = device.create_texture_with_data(
+                queue,
+                &wgpu::TextureDescriptor {
+                    label: Some("Input Tile Texture"), 
+                    size: texture_size, 
+                    mip_level_count: 1, 
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2, 
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, 
+                    view_formats: &[],
+                },
+                TextureDataOrder::MipMajor, 
+                &tile_pixels,
+            );
 
-    let mut unpadded_data = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
-    for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-        unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
+            let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Output Tile Texture"), 
+                size: texture_size, 
+                mip_level_count: 1, 
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2, 
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, 
+                view_formats: &[],
+            });
+
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Tile Bind Group"), 
+                layout: &bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { 
+                        binding: 0, 
+                        resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) 
+                    },
+                    wgpu::BindGroupEntry { 
+                        binding: 1, 
+                        resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) 
+                    },
+                    wgpu::BindGroupEntry { 
+                        binding: 2, 
+                        resource: adjustments_buffer.as_entire_binding() 
+                    },
+                ],
+            });
+
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { 
+                label: Some("Tile Encoder") 
+            });
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { 
+                    label: None, 
+                    timestamp_writes: None 
+                });
+                compute_pass.set_pipeline(&compute_pipeline);
+                compute_pass.set_bind_group(0, &bind_group, &[]);
+                compute_pass.dispatch_workgroups((tile_width + 7) / 8, (tile_height + 7) / 8, 1);
+            }
+            queue.submit(Some(encoder.finish()));
+
+            let processed_tile_data = read_texture_data(device, queue, &output_texture, texture_size)?;
+
+            for row in 0..tile_height {
+                let final_y = y_start + row;
+                let final_row_offset = (final_y * width + x_start) as usize * 4;
+                let tile_row_offset = (row * tile_width) as usize * 4;
+
+                if final_y < height && x_start < width {
+                    let copy_width = tile_width.min(width - x_start);
+                    let copy_bytes = (copy_width * 4) as usize;
+                    
+                    let final_slice_start = final_row_offset;
+                    let final_slice_end = final_slice_start + copy_bytes;
+                    let tile_slice_start = tile_row_offset;
+                    let tile_slice_end = tile_slice_start + copy_bytes;
+
+                    if final_slice_end <= final_pixels.len() && tile_slice_end <= processed_tile_data.len() {
+                        final_pixels[final_slice_start..final_slice_end]
+                            .copy_from_slice(&processed_tile_data[tile_slice_start..tile_slice_end]);
+                    }
+                }
+            }
+        }
     }
-    Ok(unpadded_data)
+
+    Ok(final_pixels)
 }
-
-// --- Histogram Generation ---
 
 #[derive(Serialize)]
 pub struct HistogramData {

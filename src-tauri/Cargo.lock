@@ -10,6 +10,7 @@ dependencies = [
  "blake3",
  "bytemuck",
  "image",
+ "jpeg-decoder",
  "palette",
  "pollster",
  "rayon",

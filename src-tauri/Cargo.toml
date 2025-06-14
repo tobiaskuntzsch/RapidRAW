@@ -22,7 +22,8 @@ serde_json = "1.0"
 image = "0.24"
 base64 = "0.21"
 tauri-plugin-fs = "2.3.0"
-rayon = "1.8"
+rayon = "1.10.0"
+blake3 = "1.5.1"
 palette = "0.7"
 wgpu = "0.19" # The core GPU abstraction library
 pollster = "0.3" # A simple helper for running async wgpu code in a sync context
@@ -30,3 +31,7 @@ bytemuck = { version = "1.14", features = ["derive"] } # For safely casting stru
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
+
+[profile.dev]
+opt-level = 2
+debug = true

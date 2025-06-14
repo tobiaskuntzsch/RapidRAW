@@ -7,7 +7,6 @@ import Button from './ui/Button';
 import HSL from './HSL';
 import CollapsibleSection from './ui/CollapsibleSection';
 
-// CHANGE 1: Add `histogram` to the list of props being received.
 export default function Controls({ adjustments, setAdjustments, selectedImage, histogram }) {
 
   const handleExportImage = async () => {
@@ -61,11 +60,10 @@ export default function Controls({ adjustments, setAdjustments, selectedImage, h
         </Button>
       </div>
       <div className="flex-grow overflow-y-auto">
-        <CollapsibleSection title="Basic Adjustments" defaultOpen={true}>
+        <CollapsibleSection title="Basic" defaultOpen={true}>
           <BasicAdjustments adjustments={adjustments} setAdjustments={setAdjustments} />
         </CollapsibleSection>
-        <CollapsibleSection title="Tone Curve" defaultOpen={false}>
-          {/* CHANGE 2: Pass the `histogram` prop down to the CurveGraph component. */}
+        <CollapsibleSection title="Curves" defaultOpen={false}>
           <CurveGraph 
             adjustments={adjustments} 
             setAdjustments={setAdjustments} 

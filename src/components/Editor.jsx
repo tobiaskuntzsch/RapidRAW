@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 
-export default function Editor({ 
-  selectedImage, 
-  quickPreviewUrl, 
-  finalPreviewUrl, 
-  showOriginal, 
-  setShowOriginal, 
-  isAdjusting 
+export default function Editor({
+  selectedImage,
+  quickPreviewUrl,
+  finalPreviewUrl,
+  showOriginal,
+  setShowOriginal,
+  isAdjusting,
+  onBackToLibrary
 }) {
   const [highResLoaded, setHighResLoaded] = useState(false);
 
@@ -26,17 +27,24 @@ export default function Editor({
     );
   }
 
-  const lowResSrc = quickPreviewUrl || finalPreviewUrl || selectedImage.originalUrl;
+  const lowResSrc = quickPreviewUrl;
   const highResSrc = finalPreviewUrl;
-
   const hasHighRes = !!highResSrc;
   const showHighRes = hasHighRes && highResLoaded;
-
   const baseImageClasses = "absolute top-0 left-0 w-full h-full max-w-full max-h-full object-contain";
   const highResImageClasses = `${baseImageClasses} transition-opacity duration-300`;
 
   return (
-    <div className="flex-1 bg-bg-primary flex flex-col relative">
+    <div className="flex-1 bg-bg-primary flex flex-col relative overflow-hidden">
+      <div className="absolute top-3 left-3 z-30">
+        <button
+          onClick={onBackToLibrary}
+          className="bg-surface text-text-primary p-2 rounded-md hover:bg-card-active transition-colors duration-200"
+          title="Back to Library"
+        >
+          <ArrowLeft size={20} />
+        </button>
+      </div>
       <div className="absolute top-3 right-3 z-30">
         <button
           onClick={() => setShowOriginal(!showOriginal)}
@@ -51,30 +59,32 @@ export default function Editor({
           wrapperStyle={{ width: '100%', height: '100%' }}
           contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
-          <div className="relative w-full h-full flex items-center justify-center">
-            {showOriginal ? (
+          <div className="relative w-full h-full flex items-center justify-center p-4">
+            <img
+              src={selectedImage.originalUrl}
+              alt="Original"
+              className={baseImageClasses}
+              style={{ display: showOriginal ? 'block' : 'none' }}
+            />
+
+            {!showOriginal && lowResSrc && (
               <img
-                src={selectedImage.originalUrl}
-                alt="Original"
-                className="max-w-full max-h-full object-contain"
+                src={lowResSrc}
+                alt="Preview"
+                className={baseImageClasses}
               />
-            ) : (
-              <>
-                <img
-                  src={lowResSrc}
-                  alt="Preview"
-                  className={baseImageClasses}
-                />
-                {hasHighRes && (
-                  <img
-                    src={highResSrc}
-                    alt="Final Preview"
-                    onLoad={() => setHighResLoaded(true)}
-                    className={highResImageClasses}
-                    style={{ opacity: showHighRes ? 1 : 0 }}
-                  />
-                )}
-              </>
+            )}
+
+            {!showOriginal && hasHighRes && (
+              <img
+                src={highResSrc}
+                alt="Final Preview"
+                onLoad={() => setHighResLoaded(true)}
+                className={highResImageClasses}
+                style={{
+                  opacity: showHighRes ? 1 : 0,
+                }}
+              />
             )}
           </div>
         </TransformComponent>

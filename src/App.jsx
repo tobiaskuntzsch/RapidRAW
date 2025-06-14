@@ -30,11 +30,12 @@ const INITIAL_ADJUSTMENTS = {
     purples: { hue: 0, saturation: 0, luminance: 0 },
     magentas: { hue: 0, saturation: 0, luminance: 0 },
   },
-  curve_points: [
-    { x: 0, y: 0 },
-    { x: 128, y: 128 },
-    { x: 255, y: 255 },
-  ],
+  curves: {
+    luma: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+    red: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+    green: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+    blue: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+  },
 };
 
 function App() {
@@ -47,6 +48,7 @@ function App() {
   const [isAppLoading, setIsAppLoading] = useState(false);
   const [isAdjusting, setIsAdjusting] = useState(false);
   const [error, setError] = useState(null);
+  const [histogram, setHistogram] = useState(null);
 
   const applyAdjustments = useCallback(debounce((currentAdjustments) => {
     if (!selectedImage) return;
@@ -54,9 +56,26 @@ function App() {
     setIsAdjusting(true);
     setError(null);
     
-    invoke('apply_adjustments', { 
-      jsAdjustments: currentAdjustments 
-    }).catch(err => {
+    const payload = { ...currentAdjustments };
+    delete payload.curve_points;
+
+    const previewPromise = invoke('apply_adjustments', { 
+      jsAdjustments: payload 
+    });
+
+    const histogramPromise = invoke('generate_processed_histogram', {
+      jsAdjustments: payload
+    });
+
+    histogramPromise
+      .then(newHistData => {
+        setHistogram(newHistData);
+      })
+      .catch(err => {
+        console.error("Failed to generate processed histogram:", err);
+      });
+
+    previewPromise.catch(err => {
       console.error("Failed to invoke apply_adjustments:", err);
       setError(`Processing failed: ${err}`);
       setIsAdjusting(false);
@@ -89,9 +108,13 @@ function App() {
     try {
       setIsAppLoading(true);
       setError(null);
+      setHistogram(null);
       
       await invoke('load_image', { path });
       
+      const histData = await invoke('generate_histogram');
+      setHistogram(histData);
+
       const originalUrl = convertFileSrc(path);
       
       setSelectedImage({ path, originalUrl });
@@ -101,7 +124,7 @@ function App() {
       setFinalPreviewUrl(originalUrl);
       setShowOriginal(false);
 
-    } catch (error) { // FIX: Removed the incorrect "=>"
+    } catch (error) {
       console.error("Failed to load image:", error);
       setError(`Failed to load image: ${error}`);
       setSelectedImage(null);
@@ -149,6 +172,7 @@ function App() {
         adjustments={adjustments}
         setAdjustments={setAdjustments}
         selectedImage={selectedImage}
+        histogram={histogram}
       />
     </div>
   );

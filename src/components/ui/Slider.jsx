@@ -1,9 +1,9 @@
 // src/components/ui/Slider.jsx
 
-import React from 'react';
+import React, { useState } from 'react';
 
 /**
- * A reusable slider component with a double-click-to-reset feature.
+ * A reusable slider component with a double-click-to-reset feature and an interactive handle.
  *
  * @param {string} label - The text label for the slider.
  * @param {number|string} value - The current value of the slider.
@@ -14,7 +14,9 @@ import React from 'react';
  * @param {number} [defaultValue=0] - The value to reset to on double-click. Defaults to 0.
  */
 const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) => {
-  
+  // State to track if the user is currently dragging the slider handle
+  const [isDragging, setIsDragging] = useState(false);
+
   /**
    * Handles the reset action on double-click.
    * It calls the passed `onChange` function with a synthetic event object
@@ -37,6 +39,10 @@ const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) =>
   // Ensure value is a valid number, default to 0 if NaN
   const numericValue = isNaN(Number(value)) ? 0 : Number(value);
 
+  // Handlers to set the dragging state for mouse and touch events
+  const handleDragStart = () => setIsDragging(true);
+  const handleDragEnd = () => setIsDragging(false);
+
   return (
     <div className="mb-2">
       {/* We attach the onDoubleClick handler to the container of the label and value */}
@@ -56,7 +62,13 @@ const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) =>
         step={step}
         value={numericValue}
         onChange={onChange}
-        className="w-full h-1.5 bg-surface rounded-full appearance-none cursor-pointer"
+        // Add event handlers for mouse and touch interaction
+        onMouseDown={handleDragStart}
+        onMouseUp={handleDragEnd}
+        onTouchStart={handleDragStart}
+        onTouchEnd={handleDragEnd}
+        // Conditionally apply a class when dragging
+        className={`w-full h-1.5 bg-surface rounded-full appearance-none cursor-pointer slider-input ${isDragging ? 'slider-thumb-active' : ''}`}
       />
     </div>
   );

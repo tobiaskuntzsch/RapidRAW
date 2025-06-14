@@ -23,6 +23,27 @@
   }
 }
 
+@layer components {
+  .slider-input::-webkit-slider-thumb {
+    @apply h-4 w-4 appearance-none rounded-full bg-white;
+    @apply transition-transform duration-150 ease-in-out;
+    margin-top: -5px;
+  }
+
+  .slider-input::-moz-range-thumb {
+    @apply h-4 w-4 rounded-full bg-white border-none;
+    @apply transition-transform duration-150 ease-in-out;
+  }
+
+  .slider-input.slider-thumb-active::-webkit-slider-thumb {
+    @apply scale-110;
+  }
+  
+  .slider-input.slider-thumb-active::-moz-range-thumb {
+    @apply scale-110;
+  }
+}
+
 @layer utilities {
   /* Custom utility for the shiny text effect */
   .text-shadow-shiny {

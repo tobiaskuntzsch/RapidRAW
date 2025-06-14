@@ -7,7 +7,8 @@ import Button from './ui/Button';
 import HSL from './HSL';
 import CollapsibleSection from './ui/CollapsibleSection';
 
-export default function Controls({ adjustments, setAdjustments, selectedImage }) {
+// CHANGE 1: Add `histogram` to the list of props being received.
+export default function Controls({ adjustments, setAdjustments, selectedImage, histogram }) {
 
   const handleExportImage = async () => {
     if (!selectedImage) {
@@ -64,7 +65,12 @@ export default function Controls({ adjustments, setAdjustments, selectedImage })
           <BasicAdjustments adjustments={adjustments} setAdjustments={setAdjustments} />
         </CollapsibleSection>
         <CollapsibleSection title="Tone Curve" defaultOpen={false}>
-          <CurveGraph adjustments={adjustments} setAdjustments={setAdjustments} />
+          {/* CHANGE 2: Pass the `histogram` prop down to the CurveGraph component. */}
+          <CurveGraph 
+            adjustments={adjustments} 
+            setAdjustments={setAdjustments} 
+            histogram={histogram} 
+          />
         </CollapsibleSection>
         <CollapsibleSection title="Color" defaultOpen={false}>
           <HSL adjustments={adjustments} setAdjustments={setAdjustments} />

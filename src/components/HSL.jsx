@@ -46,7 +46,7 @@ export default function ColorPanel({ adjustments, setAdjustments }) {
     return (
         <div> 
             <div className="mb-4 p-2 bg-bg-tertiary rounded-md">
-                <p className="text-md font-semibold mb-2 text-accent">White Balance</p>
+                <p className="text-md font-semibold mb-2 text-primary">White Balance</p>
                 <Slider
                     label="Temperature"
                     value={adjustments.temperature || 0}
@@ -62,7 +62,7 @@ export default function ColorPanel({ adjustments, setAdjustments }) {
             </div>
 
             <div className="mb-4 p-2 bg-bg-tertiary rounded-md">
-                <p className="text-md font-semibold mb-2 text-accent">Presence</p>
+                <p className="text-md font-semibold mb-2 text-primary">Presence</p>
                 <Slider
                     label="Vibrance"
                     value={adjustments.vibrance || 0}
@@ -78,7 +78,7 @@ export default function ColorPanel({ adjustments, setAdjustments }) {
             </div>
 
             <div className="p-2 bg-bg-tertiary rounded-md">
-                <p className="text-md font-semibold mb-3 text-accent">Color Mixer</p>
+                <p className="text-md font-semibold mb-3 text-primary">Color Mixer</p>
                 <div className="flex justify-between mb-4 px-1">
                     {HSL_COLORS.map(({ name, color }) => (
                         <ColorSwatch

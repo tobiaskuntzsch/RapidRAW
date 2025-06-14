@@ -25,12 +25,12 @@ export default function CollapsibleSection({ title, children, defaultOpen = true
   };
 
   return (
-    <div className="border-b border-border-color/30 last:border-b-0">
+    <div className="bg-surface rounded-lg overflow-hidden">
       <button
         onClick={toggleOpen}
-        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-surface/50 transition-colors duration-200"
+        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-card-active transition-colors duration-200"
       >
-        <h3 className="text-lg font-bold text-accent text-shadow-shiny">{title}</h3>
+        <h3 className="text-lg font-normal text-primary text-shadow-shiny">{title}</h3>
         <ChevronDown 
           size={20} 
           className={`text-accent transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}

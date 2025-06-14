@@ -68,7 +68,7 @@ const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) =>
         onTouchStart={handleDragStart}
         onTouchEnd={handleDragEnd}
         // Conditionally apply a class when dragging
-        className={`w-full h-1.5 bg-surface rounded-full appearance-none cursor-pointer slider-input ${isDragging ? 'slider-thumb-active' : ''}`}
+        className={`w-full h-1.5 bg-card-active rounded-full appearance-none cursor-pointer slider-input ${isDragging ? 'slider-thumb-active' : ''}`}
       />
     </div>
   );

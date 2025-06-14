@@ -6,14 +6,12 @@ function TreeNode({ node, onFolderSelect, selectedPath }) {
   const hasChildren = node.children && node.children.length > 0;
   const isSelected = node.path === selectedPath;
 
-  // Automatically open the parent folders of the selected path
   useEffect(() => {
     if (selectedPath && selectedPath.startsWith(node.path) && selectedPath !== node.path) {
       setIsOpen(true);
     }
   }, [selectedPath, node.path]);
 
-  // Combines selecting the folder and toggling its view
   const handleClick = () => {
     onFolderSelect(node.path);
     if (hasChildren) {
@@ -24,7 +22,7 @@ function TreeNode({ node, onFolderSelect, selectedPath }) {
   return (
     <div className="text-sm">
       <div
-        onClick={handleClick} // Use the combined handler here
+        onClick={handleClick}
         className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer hover:bg-surface transition-colors ${
           isSelected ? 'bg-card-active' : ''
         }`}
@@ -41,7 +39,6 @@ function TreeNode({ node, onFolderSelect, selectedPath }) {
         <span className="truncate select-none">{node.name}</span>
       </div>
 
-      {/* Animated container for children */}
       {hasChildren && (
         <div
           className={`overflow-hidden transition-[max-height] duration-300 ease-in-out ${isOpen ? 'max-h-[1000px]' : 'max-h-0'}`}
@@ -65,20 +62,21 @@ function TreeNode({ node, onFolderSelect, selectedPath }) {
 export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoading, isVisible, setIsVisible }) {
   return (
     <div
-      className={`relative bg-bg-secondary border-r border-border-color/30 flex-shrink-0 transition-[width] duration-300 ease-in-out ${
+      className={`relative bg-bg-secondary rounded-lg flex-shrink-0 transition-[width] duration-300 ease-in-out ${
         isVisible ? 'w-64' : 'w-8'
       }`}
     >
       <button
         onClick={() => setIsVisible(!isVisible)}
-        className="absolute top-1/2 -translate-y-1/2 -right-5 w-5 h-10 bg-bg-secondary hover:bg-surface rounded-r-md flex items-center justify-center border-t border-r border-b border-border-color/30 z-10"
+        className="absolute top-1/2 -translate-y-1/2 right-1 w-6 h-10 bg-surface hover:bg-card-active rounded-md flex items-center justify-center z-10"
         title={isVisible ? "Collapse Panel" : "Expand Panel"}
       >
         {isVisible ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
       </button>
 
       {isVisible && (
-        <div className="p-2 flex flex-col overflow-y-auto h-full">
+        // The pr-3 for scrollbar padding has been removed, and classes to hide the scrollbar have been added.
+        <div className="p-2 flex flex-col overflow-y-auto h-full [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {isLoading && (
             <p className="text-text-secondary text-sm animate-pulse p-2">Loading folder structure...</p>
           )}

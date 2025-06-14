@@ -11,12 +11,12 @@
     width: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: theme('colors.bg-primary');
+    background: theme('colors.bg-secondary');
   }
   ::-webkit-scrollbar-thumb {
     background-color: theme('colors.text-secondary');
     border-radius: 10px;
-    border: 2px solid theme('colors.bg-primary');
+    border: 2px solid theme('colors.bg-secondary');
   }
   ::-webkit-scrollbar-thumb:hover {
     background-color: theme('colors.hover-color');
@@ -45,8 +45,8 @@
 }
 
 @layer utilities {
-  /* Custom utility for the shiny text effect */
+  /* Custom utility for the shiny text effect, updated for the new accent color */
   .text-shadow-shiny {
-    text-shadow: 0 0 18px rgba(191, 166, 104, 0.5);
+    text-shadow: 0 0 18px rgba(138, 180, 248, 0.35);
   }
 }

@@ -11,12 +11,12 @@ export default function Filmstrip({
 
   return (
     <div
-      className={`bg-bg-secondary border-t border-border-color/30 flex-shrink-0 transition-all duration-300 ease-in-out ${isVisible ? 'h-36' : 'h-8'}`}
+      className={`bg-bg-secondary rounded-lg flex-shrink-0 transition-all duration-300 ease-in-out ${isVisible ? 'h-36' : 'h-8'}`}
     >
       <div className="relative h-full flex flex-col">
         <button
           onClick={() => setIsVisible(!isVisible)}
-          className="absolute -top-5 right-8 w-10 h-5 bg-bg-secondary hover:bg-surface rounded-t-md flex items-center justify-center border-t border-l border-r border-border-color/30"
+          className="absolute top-1 right-3 w-10 h-6 bg-surface hover:bg-card-active rounded-md flex items-center justify-center z-10"
           title={isVisible ? "Collapse Filmstrip" : "Expand Filmstrip"}
         >
           {isVisible ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
@@ -32,7 +32,7 @@ export default function Filmstrip({
                   <div
                     key={path}
                     onClick={() => onImageSelect(path)}
-                    className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${isSelected ? 'border-2 border-accent' : 'border-2 border-transparent hover:border-hover-color'}`}
+                    className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${isSelected ? 'ring-2 ring-accent' : 'hover:ring-2 hover:ring-hover-color'}`}
                   >
                     {thumbData ? (
                       <img

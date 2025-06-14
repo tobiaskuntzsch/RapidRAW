@@ -49,17 +49,18 @@ export default function Controls({ adjustments, setAdjustments, selectedImage, h
   };
 
   return (
-    <div className="w-80 bg-bg-secondary flex flex-col border-l border-border-color/30">
-      <div className="p-4 border-b border-border-color/30 flex justify-between items-center">
-        <h2 className="text-xl font-bold text-accent text-shadow-shiny">Adjustments</h2>
+    <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden">
+      <div className="p-4 flex justify-between items-center">
+        <h2 className="text-xl font-bold text-primary text-shadow-shiny">Adjustments</h2>
         <Button
           onClick={handleExportImage}
           disabled={!selectedImage}
+          className="rounded-full"
         >
           <Save size={18} /> Export
         </Button>
       </div>
-      <div className="flex-grow overflow-y-auto">
+      <div className="flex-grow overflow-y-auto p-2 flex flex-col gap-2">
         <CollapsibleSection title="Basic" defaultOpen={true}>
           <BasicAdjustments adjustments={adjustments} setAdjustments={setAdjustments} />
         </CollapsibleSection>

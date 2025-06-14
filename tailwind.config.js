@@ -7,26 +7,24 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Based on your 'dark-gold' theme
-        'bg-primary': '#202020',      // Main background
-        'bg-secondary': '#1b1b1b',    // Panel backgrounds (like sidebars)
-        'surface': '#201e19',         // Interactive surfaces, inputs, sliders
-        'card-active': '#221f1b',     // Hover/active state for cards
+        // Professional dark theme with muted green-gray tones
+        'bg-primary': '#1a1d1b',      // Deep charcoal with greenish undertone
+        'bg-secondary': '#202322',    // Slightly lighter panel background
+        'surface': '#2a2e2c',         // Interactive surfaces
+        'card-active': '#323733',     // Card hover/active state
 
-        'text-primary': '#f9d5b1',    // Main text color ("beige")
-        'text-secondary': '#debe9d',  // Secondary text for labels
-        'accent': '#fff7ea',          // Accent color for bold/shiny text ("white")
+        'text-primary': '#e3e5e1',    // Off-white with a cool-neutral balance
+        'text-secondary': '#9ba59c',  // Muted sage-gray for secondary text
+        'accent': '#8fbfa7',          // Muted green (sage/seafoam) for highlights
 
-        'border-color': '#e4a875',    // Borders
-        'hover-color': '#e4a875',     // Hover color for specific elements
+        'border-color': '#5f6a64',    // Mid-gray-green border
+        'hover-color': '#a2d2bb',     // Soft minty hover tone for subtle interaction
       },
       fontFamily: {
-        // Set Poppins as the default sans-serif font
         sans: ['Poppins', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        // The custom shiny shadow from your old CSS
-        'shiny': '0 0 21px rgba(191, 166, 104, 0.5)',
+        'shiny': '0 0 21px rgba(162, 210, 187, 0.25)', // Gentle green glow
       },
       borderRadius: {
         'md': '10px',

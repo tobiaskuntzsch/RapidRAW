@@ -1,4 +1,4 @@
-import { useState } from 'react'; // <-- 1. Import useState
+import { useState } from 'react';
 import { Folder, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import Button from './ui/Button';
 import FolderTree from './FolderTree';
@@ -7,7 +7,7 @@ function Thumbnail({ path, data, onDoubleClick }) {
   return (
     <div
       onClick={() => onDoubleClick(path)}
-      className="aspect-square bg-bg-secondary rounded-md overflow-hidden cursor-pointer group relative border-2 border-transparent hover:border-hover-color transition-all duration-150"
+      className="aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative hover:ring-2 hover:ring-hover-color transition-all duration-150"
       title={path.split(/[\\/]/).pop()}
     >
       {data ? (
@@ -40,16 +40,15 @@ export default function MainLibrary({
   isTreeLoading,
   thumbnails
 }) {
-  // 2. Add local state to manage the visibility of the folder tree in this view
   const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true);
 
   if (!rootPath) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center h-full bg-bg-primary p-8 text-center">
         <ImageIcon size={80} className="text-accent opacity-20 mb-6" />
-        <h1 className="text-3xl font-bold text-accent mb-2">Photo Editor</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">RapidRAW</h1>
         <p className="text-text-secondary mb-8">Open a folder to start editing your images.</p>
-        <Button onClick={onOpenFolder} size="lg">
+        <Button onClick={onOpenFolder} size="lg" className="rounded-md">
           <Folder size={24} /> Open Folder
         </Button>
       </div>
@@ -57,23 +56,22 @@ export default function MainLibrary({
   }
 
   return (
-    <div className="flex flex-row flex-grow h-full min-h-0">
+    <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
       <FolderTree
         tree={folderTree}
         onFolderSelect={onFolderSelect}
         selectedPath={currentFolderPath}
         isLoading={isTreeLoading}
-        // 3. Pass the state and setter down to the FolderTree component
         isVisible={isFolderTreeVisible}
         setIsVisible={setIsFolderTreeVisible}
       />
-      <div className="flex-1 flex flex-col h-full min-w-0">
-        <header className="p-4 border-b border-border-color/30 bg-bg-secondary flex-shrink-0 flex justify-between items-center">
+      <div className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden">
+        <header className="p-4 flex-shrink-0 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-bold text-accent text-shadow-shiny">Library</h2>
+            <h2 className="text-3xl font-bold text-accent text-shadow-shiny">Library</h2>
             <p className="text-sm text-text-secondary truncate">{currentFolderPath}</p>
           </div>
-          <Button onClick={onOpenFolder}>
+          <Button onClick={onOpenFolder} className="rounded-md">
             <RefreshCw size={16} /> Change Root Folder
           </Button>
         </header>

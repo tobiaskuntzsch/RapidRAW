@@ -20,7 +20,7 @@ export default function Editor({
 
   if (!selectedImage) {
     return (
-      <div className="panel-center items-center justify-center text-text-secondary">
+      <div className="flex-1 bg-bg-primary flex items-center justify-center text-text-secondary">
         <p>Select an image from the library to begin editing.</p>
       </div>
     );
@@ -32,17 +32,15 @@ export default function Editor({
   const hasHighRes = !!highResSrc;
   const showHighRes = hasHighRes && highResLoaded;
 
-  // Base classes without any transition properties
-  const baseImageClasses = "absolute top-0 left-0 w-full h-full max-w-full max-h-full object-contain shadow-2xl";
-  // Classes for the high-res image, which include the transition
+  const baseImageClasses = "absolute top-0 left-0 w-full h-full max-w-full max-h-full object-contain";
   const highResImageClasses = `${baseImageClasses} transition-opacity duration-300`;
 
   return (
-    <div className="panel-center relative">
+    <div className="flex-1 bg-bg-primary flex flex-col relative">
       <div className="absolute top-3 right-3 z-30">
         <button
           onClick={() => setShowOriginal(!showOriginal)}
-          className="btn-icon"
+          className="bg-surface text-text-primary p-2 rounded-md hover:bg-card-active transition-colors duration-200"
           title={showOriginal ? "Show Edited Image" : "Show Original Image"}
         >
           {showOriginal ? <EyeOff size={20} /> : <Eye size={20} />}
@@ -58,17 +56,15 @@ export default function Editor({
               <img
                 src={selectedImage.originalUrl}
                 alt="Original"
-                className="max-w-full max-h-full object-contain shadow-2xl"
+                className="max-w-full max-h-full object-contain"
               />
             ) : (
               <>
-                {/* Low-res image is always opaque and has no transition */}
                 <img
                   src={lowResSrc}
                   alt="Preview"
                   className={baseImageClasses}
                 />
-                {/* High-res image fades in on top of the low-res one */}
                 {hasHighRes && (
                   <img
                     src={highResSrc}
@@ -83,11 +79,6 @@ export default function Editor({
           </div>
         </TransformComponent>
       </TransformWrapper>
-      {isAdjusting && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white bg-black/50 px-3 py-1 rounded-full text-sm animate-pulse">
-          Processing...
-        </div>
-      )}
     </div>
   );
 }

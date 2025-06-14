@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Save } from 'lucide-react';
 import BasicAdjustments from './BasicAdjustments';
 import CurveGraph from './CurveGraph';
+import Button from './ui/Button';
 import HSL from './HSL';
 
 export default function Controls({ adjustments, setAdjustments, selectedImage }) {
@@ -47,18 +48,19 @@ export default function Controls({ adjustments, setAdjustments, selectedImage })
   };
 
   return (
-    <div className="panel-right">
-      <div className="p-4 border-b border-border-color flex justify-between items-center">
-        <h2 className="panel-title mb-0">Adjustments</h2>
-        <button
+    <div className="w-80 bg-bg-secondary flex flex-col border-l border-border-color/30">
+      <div className="p-4 border-b border-border-color/30 flex justify-between items-center">
+        {/* Title: Bold and "white" (accent color) */}
+        <h2 className="text-xl font-bold text-accent text-shadow-shiny">Adjustments</h2>
+        {/* Shiny Button */}
+        <Button
           onClick={handleExportImage}
           disabled={!selectedImage}
-          className="btn bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-500 disabled:cursor-not-allowed"
         >
           <Save size={18} /> Export
-        </button>
+        </Button>
       </div>
-      <div className="flex-grow overflow-y-auto">
+      <div className="flex-grow overflow-y-auto p-4">
         <BasicAdjustments adjustments={adjustments} setAdjustments={setAdjustments} />
         <CurveGraph adjustments={adjustments} setAdjustments={setAdjustments} />
         <HSL adjustments={adjustments} setAdjustments={setAdjustments} />

@@ -17,30 +17,38 @@ export default function CurveGraph({ adjustments, setAdjustments }) {
   };
 
   return (
-    <div className="section">
-      <h3 className="section-title">Tone Curve</h3>
-      <div className="w-full h-48 bg-bg-primary p-2 rounded-md mb-4">
+    // Added consistent section padding and border
+    <div className="py-4 border-b border-border-color/30">
+      {/* Styled the title to be shiny */}
+      <h3 className="text-lg font-bold mb-3 text-accent">Tone Curve</h3>
+      
+      {/* Changed background to 'surface' to make it stand out slightly */}
+      <div className="w-full h-48 bg-surface p-2 rounded-md mb-4">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={curve_points} margin={{ top: 5, right: 5, left: -20, bottom: -10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={ "rgba(161, 161, 166, 0.3)" } />
+            {/* Updated grid line color to match theme */}
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(222, 190, 157, 0.2)" />
             <XAxis dataKey="x" type="number" domain={[0, 255]} tick={false} axisLine={false} />
             <YAxis type="number" domain={[0, 255]} tick={false} axisLine={false} />
-            <Line type="monotone" dataKey="y" stroke="#0a84ff" strokeWidth={2} dot={<Dot r={4} fill="#0a84ff" />} />
+            {/* Updated line and dot color to match theme's border/hover color */}
+            <Line type="monotone" dataKey="y" stroke="#e4a875" strokeWidth={2} dot={<Dot r={4} fill="#e4a875" />} />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div className="slider-container">
-        <label className="label">Midtones</label>
-        <div className="slider-wrapper">
+      
+      {/* Updated slider styling to be consistent */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-text-secondary">Midtones</label>
+        <div className="flex items-center gap-4 mt-1">
           <input
             type="range"
             min="0"
             max="255"
             value={midPointY}
             onChange={handleMidPointChange}
-            className="slider-track"
+            className="w-full h-2 bg-surface rounded-full appearance-none cursor-pointer"
           />
-          <span className="slider-value">{midPointY}</span>
+          <span className="text-sm text-text-primary w-12 text-center">{midPointY}</span>
         </div>
       </div>
     </div>

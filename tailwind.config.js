@@ -7,26 +7,30 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Base background colors
-        'bg-primary': '#1d1d1f',   // Main background, like macOS windows
-        'bg-secondary': '#2c2c2e', // Secondary panels, slightly lighter
-        'surface': '#3a3a3c',      // For interactive surfaces like sliders
-        
-        // Text colors
-        'text-primary': '#f5f5f7', // Primary text, slightly off-white
-        'text-secondary': '#a1a1a6',// Secondary text, for labels or less important info
-        
-        // Accent and border colors
-        'accent': '#0a84ff',       // The classic Apple blue for buttons and highlights
-        'accent-hover': '#3b9bff',
-        'border-color': '#424245', // Subtle borders between elements
+        // Based on your 'dark-gold' theme
+        'bg-primary': '#202020',      // Main background
+        'bg-secondary': '#1b1b1b',    // Panel backgrounds (like sidebars)
+        'surface': '#201e19',         // Interactive surfaces, inputs, sliders
+        'card-active': '#221f1b',     // Hover/active state for cards
+
+        'text-primary': '#f9d5b1',    // Main text color ("beige")
+        'text-secondary': '#debe9d',  // Secondary text for labels
+        'accent': '#fff7ea',          // Accent color for bold/shiny text ("white")
+
+        'border-color': '#e4a875',    // Borders
+        'hover-color': '#e4a875',     // Hover color for specific elements
       },
       fontFamily: {
-        // Use the system's default modern UI font (San Francisco on macOS, Segoe UI on Windows)
-        sans: ['system-ui', 'sans-serif'],
+        // Set Poppins as the default sans-serif font
+        sans: ['Poppins', 'system-ui', 'sans-serif'],
+      },
+      boxShadow: {
+        // The custom shiny shadow from your old CSS
+        'shiny': '0 0 21px rgba(191, 166, 104, 0.5)',
       },
       borderRadius: {
-        'large': '12px', // Apple uses more pronounced rounded corners
+        'md': '10px',
+        'lg': '20px',
       }
     },
   },

@@ -1,7 +1,8 @@
 const Slider = ({ label, value, onChange, min, max, step }) => (
-  <div className="slider-container">
-    <label className="label">{label}</label>
-    <div className="slider-wrapper">
+  <div className="mb-4">
+    {/* Label: Secondary text color */}
+    <label className="block text-sm font-medium text-text-secondary">{label}</label>
+    <div className="flex items-center gap-4 mt-1">
       <input
         type="range"
         min={min}
@@ -9,9 +10,10 @@ const Slider = ({ label, value, onChange, min, max, step }) => (
         step={step}
         value={value}
         onChange={onChange}
-        className="slider-track"
+        className="w-full h-2 bg-surface rounded-full appearance-none cursor-pointer"
       />
-      <span className="slider-value">{value}</span>
+      {/* Value: Primary text color */}
+      <span className="text-sm text-text-primary w-12 text-center">{value}</span>
     </div>
   </div>
 );
@@ -22,8 +24,9 @@ export default function BasicAdjustments({ adjustments, setAdjustments }) {
   };
 
   return (
-    <div className="section">
-      <h3 className="section-title">Basic</h3>
+    <div className="pb-4 border-b border-border-color/30">
+      {/* Section Title: Bold and "white" (accent color) */}
+      <h3 className="text-lg font-bold mb-3 text-accent">Basic</h3>
       <Slider
         label="Brightness"
         value={adjustments.brightness}

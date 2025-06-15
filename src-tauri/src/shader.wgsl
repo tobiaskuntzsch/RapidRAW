@@ -12,7 +12,6 @@ struct HslColor {
     _pad: f32,
 }
 
-// UPDATED: Adjustments struct to match Rust
 struct Adjustments {
     // Group 1
     exposure: f32,
@@ -94,7 +93,6 @@ fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
         return clamp(points[0].y / 255.0, 0.0, 1.0); 
     }
 
-    // Unroll the loop with constant indices to avoid dynamic array indexing
     if (count >= 2u && x <= points[1].x) {
         let p1 = points[0]; let p2 = points[1];
         return interpolate_curve_segment(x, p1, p2);
@@ -156,7 +154,6 @@ fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
         return interpolate_curve_segment(x, p1, p2);
     }
 
-    // If we reach here, return the last point's y value
     if (count >= 16u) { return clamp(points[15].y / 255.0, 0.0, 1.0); }
     if (count >= 15u) { return clamp(points[14].y / 255.0, 0.0, 1.0); }
     if (count >= 14u) { return clamp(points[13].y / 255.0, 0.0, 1.0); }
@@ -174,7 +171,6 @@ fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
     return clamp(points[1].y / 255.0, 0.0, 1.0);
 }
 
-// Helper function to interpolate between two curve points
 fn interpolate_curve_segment(x: f32, p1: Point, p2: Point) -> f32 {
     var result_y: f32;
     if (abs(p1.x - p2.x) < 0.001) {
@@ -195,7 +191,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var color = textureLoad(input_texture, pixel_coords, 0);
     var rgb = color.rgb;
 
-    // 1. Basic tonal adjustments (unchanged)
     rgb += vec3<f32>(adjustments.exposure * 0.5);
     let black_point = -adjustments.blacks;
     let white_point = 1.0 - adjustments.whites;
@@ -208,18 +203,28 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     rgb = 0.5 + (rgb - 0.5) * (1.0 + adjustments.contrast);
     rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
 
-    // 2. White Balance (unchanged)
-    rgb.r += adjustments.temperature;
-    rgb.b -= adjustments.temperature;
-    rgb.g -= adjustments.tint;
+    let temp = adjustments.temperature;
+    let tint = adjustments.tint;
+    let wb_multiplier = vec3<f32>(1.0 + temp, 1.0 - tint, 1.0 - temp);
+    rgb *= wb_multiplier;
 
-    // 3. Color adjustments (unchanged)
     var hsv = rgb_to_hsv(rgb);
-    let vibrance_boost = adjustments.vibrance * (1.0 - smoothstep(0.1, 0.7, hsv.y));
-    hsv.y = clamp(hsv.y + vibrance_boost, 0.0, 1.0);
-    hsv.y = clamp(hsv.y * (1.0 + adjustments.saturation), 0.0, 1.0);
-    
-    // HSL logic
+
+    if (hsv.y > 0.001) {
+        let saturation_mask = 1.0 - smoothstep(0.2, 0.8, hsv.y);
+
+        let skin_hue_center = 40.0;
+        let hue_dist = min(abs(hsv.x - skin_hue_center), 360.0 - abs(hsv.x - skin_hue_center));
+        let skin_protection = smoothstep(15.0, 40.0, hue_dist);
+
+        let vibrance_effect = adjustments.vibrance * saturation_mask * skin_protection;
+
+        let total_saturation_multiplier = 1.0 + adjustments.saturation + vibrance_effect;
+        hsv.y *= total_saturation_multiplier;
+    }
+
+    hsv.y = clamp(hsv.y, 0.0, 1.0);
+
     if (hsv.y > 0.01) {
         var total_hue_shift: f32 = 0.0;
         var total_sat_adjust: f32 = 0.0;
@@ -252,21 +257,16 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     rgb = hsv_to_rgb(hsv);
 
-    // 4. Apply multi-channel curves
-    // Apply Luma curve first to all channels
     var luma_adjusted_rgb = vec3<f32>(
         apply_curve(rgb.r, adjustments.luma_curve, adjustments.luma_curve_count),
         apply_curve(rgb.g, adjustments.luma_curve, adjustments.luma_curve_count),
         apply_curve(rgb.b, adjustments.luma_curve, adjustments.luma_curve_count)
     );
-
-    // Then apply individual channel curves
     let final_rgb = vec3<f32>(
         apply_curve(luma_adjusted_rgb.r, adjustments.red_curve, adjustments.red_curve_count),
         apply_curve(luma_adjusted_rgb.g, adjustments.green_curve, adjustments.green_curve_count),
         apply_curve(luma_adjusted_rgb.b, adjustments.blue_curve, adjustments.blue_curve_count)
     );
 
-    // 5. Final output
     textureStore(output_texture, pixel_coords, clamp(vec4<f32>(final_rgb, color.a), vec4<f32>(0.0), vec4<f32>(1.0)));
 }

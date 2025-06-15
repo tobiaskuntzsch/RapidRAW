@@ -6,7 +6,7 @@ const Button = ({ children, onClick, disabled, className = '', ...props }) => {
   const baseClasses = `
     flex items-center justify-center gap-2 
     font-semibold py-2 px-4 rounded-md 
-    bg-accent text-bg-primary shadow-shiny 
+    bg-accent text-button-text shadow-shiny 
     transition-transform duration-200 
     hover:scale-[1.01] active:scale-[.98]
     disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:scale-100

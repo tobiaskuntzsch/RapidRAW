@@ -1,58 +1,71 @@
 import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 
-function TreeNode({ node, onFolderSelect, selectedPath }) {
-  const [isOpen, setIsOpen] = useState(true);
+// 1. Add a `defaultOpen` prop to control the initial state.
+function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
+  // Use the `defaultOpen` prop to set the initial state of `isOpen`.
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const hasChildren = node.children && node.children.length > 0;
   const isSelected = node.path === selectedPath;
 
   useEffect(() => {
+    // This effect ensures parent folders are open if a child is selected.
     if (selectedPath && selectedPath.startsWith(node.path) && selectedPath !== node.path) {
       setIsOpen(true);
     }
   }, [selectedPath, node.path]);
 
-  const handleClick = () => {
-    onFolderSelect(node.path);
+  const handleFolderIconClick = (e) => {
+    e.stopPropagation();
     if (hasChildren) {
       setIsOpen(!isOpen);
     }
   };
 
+  const handleNameClick = () => {
+    onFolderSelect(node.path);
+  };
+
   return (
     <div className="text-sm">
       <div
-        onClick={handleClick}
-        className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer hover:bg-surface transition-colors ${
-          isSelected ? 'bg-card-active' : ''
+        className={`flex items-center gap-2 p-1.5 rounded-md transition-colors ${
+          isSelected ? 'bg-card-active' : 'hover:bg-surface'
         }`}
       >
-        {hasChildren ? (
-          isOpen ? (
-            <FolderOpen size={16} className="text-hover-color flex-shrink-0" />
+        <div
+          onClick={handleFolderIconClick}
+          className={`cursor-pointer p-0.5 rounded hover:bg-surface ${hasChildren ? '' : 'cursor-default'}`}
+        >
+          {hasChildren ? (
+            isOpen ? (
+              <FolderOpen size={16} className="text-hover-color flex-shrink-0" />
+            ) : (
+              <Folder size={16} className="text-text-secondary flex-shrink-0" />
+            )
           ) : (
             <Folder size={16} className="text-text-secondary flex-shrink-0" />
-          )
-        ) : (
-          <Folder size={16} className="text-text-secondary flex-shrink-0" />
-        )}
-        <span className="truncate select-none">{node.name}</span>
+          )}
+        </div>
+        <span 
+          onClick={handleNameClick}
+          className="truncate select-none cursor-pointer flex-1"
+        >
+          {node.name}
+        </span>
       </div>
 
-      {hasChildren && (
-        <div
-          className={`overflow-hidden transition-[max-height] duration-300 ease-in-out ${isOpen ? 'max-h-[1000px]' : 'max-h-0'}`}
-        >
-          <div className="pl-4 border-l border-border-color/20 ml-2 py-1">
-            {node.children.map((childNode) => (
-              <TreeNode
-                key={childNode.path}
-                node={childNode}
-                onFolderSelect={onFolderSelect}
-                selectedPath={selectedPath}
-              />
-            ))}
-          </div>
+      {hasChildren && isOpen && (
+        <div className="pl-4 border-l border-border-color/20 ml-2 py-1">
+          {node.children.map((childNode) => (
+            <TreeNode
+              key={childNode.path}
+              node={childNode}
+              onFolderSelect={onFolderSelect}
+              selectedPath={selectedPath}
+              // Note: `defaultOpen` is not passed here, so it defaults to `false` for children.
+            />
+          ))}
         </div>
       )}
     </div>
@@ -75,8 +88,7 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
       </button>
 
       {isVisible && (
-        // The pr-3 for scrollbar padding has been removed, and classes to hide the scrollbar have been added.
-        <div className="p-2 flex flex-col overflow-y-auto h-full [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="p-2  flex flex-col overflow-y-auto h-full">
           {isLoading && (
             <p className="text-text-secondary text-sm animate-pulse p-2">Loading folder structure...</p>
           )}
@@ -85,7 +97,13 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
           )}
           {!isLoading && tree && (
             <>
-              <TreeNode node={tree} onFolderSelect={onFolderSelect} selectedPath={selectedPath} />
+              {/* 2. Pass `defaultOpen={true}` to the root TreeNode */}
+              <TreeNode 
+                node={tree} 
+                onFolderSelect={onFolderSelect} 
+                selectedPath={selectedPath} 
+                defaultOpen={true} 
+              />
               {tree.children.length === 0 && (
                 <div className="text-xs text-text-secondary mt-2 px-2">
                   No subfolders found.

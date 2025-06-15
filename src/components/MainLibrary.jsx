@@ -44,7 +44,7 @@ export default function MainLibrary({
 
   if (!rootPath) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center h-full bg-bg-primary p-8 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center h-full rounded-lg bg-bg-primary p-8 text-center">
         <ImageIcon size={80} className="text-accent opacity-20 mb-6" />
         <h1 className="text-3xl font-bold text-primary mb-2">RapidRAW</h1>
         <p className="text-text-secondary mb-8">Open a folder to start editing your images.</p>
@@ -68,10 +68,10 @@ export default function MainLibrary({
       <div className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden">
         <header className="p-4 flex-shrink-0 flex justify-between items-center">
           <div>
-            <h2 className="text-3xl font-bold text-accent text-shadow-shiny">Library</h2>
+            <h2 className="text-3xl font-bold text-primary text-shadow-shiny">Library</h2>
             <p className="text-sm text-text-secondary truncate">{currentFolderPath}</p>
           </div>
-          <Button onClick={onOpenFolder} className="rounded-md">
+          <Button onClick={onOpenFolder} className="rounded-md text-black hover:text-black">
             <RefreshCw size={16} /> Change Root Folder
           </Button>
         </header>

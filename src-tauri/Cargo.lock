@@ -21,6 +21,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "wgpu",
+ "window-vibrancy",
 ]
 
 [[package]]

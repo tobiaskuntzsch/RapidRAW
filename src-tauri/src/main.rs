@@ -10,8 +10,10 @@ use std::sync::Mutex;
 use std::thread;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, imageops::FilterType};
-use tauri::Emitter;
+use tauri::{Manager, Emitter}; // Manager is still needed for AppHandle
 use base64::{Engine as _, engine::general_purpose};
+use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
+
 
 use crate::image_processing::{
     get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, Adjustments, GpuContext,
@@ -44,7 +46,7 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
     let img = image::open(&path).map_err(|e| e.to_string())?;
     let (orig_width, orig_height) = img.dimensions();
 
-    const DISPLAY_PREVIEW_DIM: u32 = 1080;
+    const DISPLAY_PREVIEW_DIM: u32 = 1280;
     const FINAL_PREVIEW_MAX_DIM: u32 = 2160;
 
     let ((original_base64_result, quick_preview), final_preview) = rayon::join(
@@ -150,10 +152,24 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
     Ok(())
 }
 
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init()) 
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let window = app.get_webview_window("main").unwrap();
+
+            #[cfg(target_os = "macos")]
+            apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None)
+              .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+
+            #[cfg(target_os = "windows")]
+            apply_acrylic(&window, Some((26, 29, 27, 60)))
+              .expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
+
+            Ok(())
+        })
         .manage(AppState {
             original_image: Mutex::new(None),
             quick_preview_image: Mutex::new(None),

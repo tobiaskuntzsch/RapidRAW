@@ -100,6 +100,27 @@ export default function Editor({
   onToggleFullScreen
 }) {
   const [highResLoaded, setHighResLoaded] = useState(false);
+  const [isLoaderMounted, setIsLoaderMounted] = useState(false);
+  const [isLoaderVisible, setIsLoaderVisible] = useState(false);
+
+  useEffect(() => {
+    let timeoutId;
+    if (isLoading) {
+      setIsLoaderMounted(true);
+      timeoutId = setTimeout(() => {
+        setIsLoaderVisible(true);
+      }, 50);
+    } else {
+      setIsLoaderVisible(false);
+      timeoutId = setTimeout(() => {
+        setIsLoaderMounted(false);
+      }, 300);
+    }
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [isLoading]);
   
   useEffect(() => {
     if (isAdjusting) {
@@ -203,8 +224,8 @@ export default function Editor({
         </div>
 
         <div className="flex-1 relative overflow-hidden rounded-lg">
-          {isLoading && (
-            <div className="absolute inset-0 bg-bg-secondary/80 flex items-center justify-center z-20">
+          {isLoaderMounted && (
+            <div className={`absolute inset-0 bg-bg-secondary/80 flex items-center justify-center z-20 transition-opacity duration-300 ease-in-out ${isLoaderVisible ? 'opacity-100' : 'opacity-0'}`}>
               <Loader2 size={48} className="animate-spin text-accent" />
             </div>
           )}

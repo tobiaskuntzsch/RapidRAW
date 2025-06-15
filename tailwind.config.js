@@ -7,28 +7,28 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Professional dark theme with muted green-gray tones
-        'bg-primary': '#1a1d1b',      // Deep charcoal with greenish undertone
-        'bg-secondary': '#202322',    // Slightly lighter panel background
-        'surface': '#2a2e2c',         // Interactive surfaces
-        'card-active': '#323733',     // Card hover/active state
+        'bg-primary': 'rgba(26, 26, 26, 0.6)',
+        'bg-secondary': 'rgba(34, 34, 34, 0.75)',
+        'surface': '#1f1f1f',
+        'card-active': '#2b2b2b',
+        'button-text': '#000000',
 
-        'text-primary': '#e3e5e1',    // Off-white with a cool-neutral balance
-        'text-secondary': '#9ba59c',  // Muted sage-gray for secondary text
-        'accent': '#8fbfa7',          // Muted green (sage/seafoam) for highlights
+        'text-primary': '#e8eaed',
+        'text-secondary': '#9e9e9e',
+        'accent': '#ffffff',
 
-        'border-color': '#5f6a64',    // Mid-gray-green border
-        'hover-color': '#a2d2bb',     // Soft minty hover tone for subtle interaction
+        'border-color': '#4a4a4a',
+        'hover-color': '#ffffff',
       },
       fontFamily: {
         sans: ['Poppins', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        'shiny': '0 0 21px rgba(162, 210, 187, 0.25)', // Gentle green glow
+        'shiny': '0 0 24px rgba(255, 255, 255, 0.12)',
       },
       borderRadius: {
-        'md': '10px',
-        'lg': '20px',
+        'md': '8px',
+        'lg': '15px',
       }
     },
   },

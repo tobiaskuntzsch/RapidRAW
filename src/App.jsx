@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
+import TitleBar from './window/TitleBar';
 import MainLibrary from './components/MainLibrary';
 import FolderTree from './components/FolderTree';
 import Editor from './components/Editor';
@@ -233,70 +234,74 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden p-2 gap-2">
-      {error && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
-          {error}
-          <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
-        </div>
-      )}
+    <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden">
+      <TitleBar />
 
-      {selectedImage ? (
-        <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
-          <FolderTree 
-            tree={folderTree} 
-            onFolderSelect={handleSelectSubfolder} 
-            selectedPath={currentFolderPath} 
-            isLoading={isTreeLoading}
-            isVisible={isFolderTreeVisible}
-            setIsVisible={setIsFolderTreeVisible}
-          />
-          <div className="flex-1 flex flex-col relative min-w-0 gap-2">
-            <Editor
-              selectedImage={selectedImage}
-              quickPreviewUrl={quickPreviewUrl}
-              finalPreviewUrl={finalPreviewUrl}
-              showOriginal={showOriginal}
-              setShowOriginal={setShowOriginal}
-              isAdjusting={isAdjusting}
-              onBackToLibrary={handleBackToLibrary}
-              isLoading={isViewLoading}
-              isFullScreen={isFullScreen}
-              isFullScreenLoading={isFullScreenLoading}
-              fullScreenUrl={fullScreenUrl}
-              onToggleFullScreen={handleToggleFullScreen}
+      <div className="flex-1 flex flex-col pt-12 p-2 gap-2 min-h-0">
+        {error && (
+          <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
+            {error}
+            <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
+          </div>
+        )}
+
+        {selectedImage ? (
+          <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
+            <FolderTree 
+              tree={folderTree} 
+              onFolderSelect={handleSelectSubfolder} 
+              selectedPath={currentFolderPath} 
+              isLoading={isTreeLoading}
+              isVisible={isFolderTreeVisible}
+              setIsVisible={setIsFolderTreeVisible}
             />
-            <Filmstrip
-              imageList={imageList}
+            <div className="flex-1 flex flex-col relative min-w-0 gap-2">
+              <Editor
+                selectedImage={selectedImage}
+                quickPreviewUrl={quickPreviewUrl}
+                finalPreviewUrl={finalPreviewUrl}
+                showOriginal={showOriginal}
+                setShowOriginal={setShowOriginal}
+                isAdjusting={isAdjusting}
+                onBackToLibrary={handleBackToLibrary}
+                isLoading={isViewLoading}
+                isFullScreen={isFullScreen}
+                isFullScreenLoading={isFullScreenLoading}
+                fullScreenUrl={fullScreenUrl}
+                onToggleFullScreen={handleToggleFullScreen}
+              />
+              <Filmstrip
+                imageList={imageList}
+                selectedImage={selectedImage}
+                onImageSelect={handleImageSelect}
+                isVisible={isFilmstripVisible}
+                setIsVisible={setIsFilmstripVisible}
+                isLoading={isViewLoading}
+                thumbnails={thumbnails}
+              />
+            </div>
+            <Controls
+              adjustments={adjustments}
+              setAdjustments={setAdjustments}
               selectedImage={selectedImage}
-              onImageSelect={handleImageSelect}
-              isVisible={isFilmstripVisible}
-              setIsVisible={setIsFilmstripVisible}
-              isLoading={isViewLoading}
-              thumbnails={thumbnails}
+              histogram={histogram}
             />
           </div>
-          <Controls
-            adjustments={adjustments}
-            setAdjustments={setAdjustments}
-            selectedImage={selectedImage}
-            histogram={histogram}
+        ) : (
+          <MainLibrary
+            imageList={imageList}
+            onImageSelect={handleImageSelect}
+            rootPath={rootPath}
+            currentFolderPath={currentFolderPath}
+            folderTree={folderTree}
+            onFolderSelect={handleSelectSubfolder}
+            onOpenFolder={handleOpenFolder}
+            isTreeLoading={isTreeLoading}
+            isLoading={isViewLoading}
+            thumbnails={thumbnails}
           />
-        </div>
-      ) : (
-        <MainLibrary
-          imageList={imageList}
-          onImageSelect={handleImageSelect}
-          rootPath={rootPath}
-          currentFolderPath={currentFolderPath}
-          folderTree={folderTree}
-          onFolderSelect={handleSelectSubfolder}
-          onOpenFolder={handleOpenFolder}
-          isTreeLoading={isTreeLoading}
-          isLoading={isViewLoading}
-          thumbnails={thumbnails}
-        />
-      )}
+        )}
+      </div>
     </div>
   );
 }

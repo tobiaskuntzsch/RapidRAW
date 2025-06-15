@@ -5,7 +5,7 @@ import { SlidersHorizontal, Info, Scaling, Sparkles } from 'lucide-react';
 const panelOptions = [
   { id: 'metadata', icon: Info, title: 'Metadata' },
   { id: 'adjustments', icon: SlidersHorizontal, title: 'Adjustments' },
-  { id: 'resize', icon: Scaling, title: 'Resize' },
+  { id: 'crop', icon: Scaling, title: 'Crop' },
   { id: 'ai', icon: Sparkles, title: 'AI Tools' },
 ];
 

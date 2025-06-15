@@ -1,12 +1,10 @@
-// src/file_management.rs
-
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::thread;
 
-use anyhow::{Error, Result};
+use anyhow::{Result};
 use base64::{Engine as _, engine::general_purpose};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
@@ -15,7 +13,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use crate::image_processing::{
-    get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
+    self, get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
     ImageMetadata,
 };
 use crate::AppState;
@@ -116,16 +114,21 @@ fn generate_thumbnail_data(
     if sidecar_path.exists() {
         if let Ok(file_content) = fs::read_to_string(sidecar_path) {
             if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
-                if let Some(context) = gpu_context {
-                    let gpu_adjustments = get_adjustments_from_json(&metadata.adjustments);
-                    let processed_pixels =
-                        run_gpu_processing(context, &img, gpu_adjustments)
-                            .map_err(Error::msg)?;
-                    let (width, height) = img.dimensions();
-                    if let Some(img_buf) =
-                        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-                    {
-                        img = DynamicImage::ImageRgba8(img_buf);
+                if !metadata.adjustments.is_null() {
+                    img = image_processing::apply_crop(img, &metadata.adjustments["crop"]);
+
+                    if let Some(context) = gpu_context {
+                        let gpu_adjustments = get_adjustments_from_json(&metadata.adjustments);
+                        if let Ok(processed_pixels) =
+                            run_gpu_processing(context, &img, gpu_adjustments)
+                        {
+                            let (width, height) = img.dimensions();
+                            if let Some(img_buf) =
+                                ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
+                            {
+                                img = DynamicImage::ImageRgba8(img_buf);
+                            }
+                        }
                     }
                 }
             }

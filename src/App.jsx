@@ -13,7 +13,7 @@ import Filmstrip from './components/panel/Filmstrip';
 import { useThumbnails } from './hooks/useThumbnails';
 import RightPanelSwitcher from './components/panel/RightPanelSwitcher';
 import MetadataPanel from './components/panel/MetadataPanel';
-import ResizePanel from './components/panel/ResizePanel';
+import CropPanel from './components/panel/CropPanel';
 import AIPanel from './components/panel/AIPanel';
 
 
@@ -30,6 +30,8 @@ export const INITIAL_ADJUSTMENTS = {
     luma: [{ x: 0, y: 0 }, { x: 255, y: 255 }], red: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
     green: [{ x: 0, y: 0 }, { x: 255, y: 255 }], blue: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
   },
+  crop: null,
+  aspectRatio: null,
 };
 
 
@@ -225,8 +227,15 @@ function App() {
         return currentSelected;
       });
 
-      if (loadImageResult.metadata.adjustments) {
-        setAdjustments(loadImageResult.metadata.adjustments);
+      if (loadImageResult.metadata.adjustments && !loadImageResult.metadata.adjustments.is_null) {
+        // Deep merge with initial adjustments to ensure all keys are present
+        setAdjustments(prev => ({
+          ...INITIAL_ADJUSTMENTS,
+          ...prev,
+          ...loadImageResult.metadata.adjustments,
+          hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadImageResult.metadata.adjustments.hsl },
+          curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadImageResult.metadata.adjustments.curves },
+        }));
       } else {
         setAdjustments(INITIAL_ADJUSTMENTS);
       }
@@ -302,6 +311,9 @@ function App() {
                 isFullScreenLoading={isFullScreenLoading}
                 fullScreenUrl={fullScreenUrl}
                 onToggleFullScreen={handleToggleFullScreen}
+                activeRightPanel={activeRightPanel}
+                adjustments={adjustments}
+                setAdjustments={setAdjustments}
               />
               <Filmstrip
                 imageList={imageList}
@@ -327,8 +339,12 @@ function App() {
                 <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
                   <MetadataPanel selectedImage={selectedImage} />
                 </div>
-                <div className={activeRightPanel === 'resize' ? 'h-full' : 'hidden'}>
-                  <ResizePanel selectedImage={selectedImage} />
+                <div className={activeRightPanel === 'crop' ? 'h-full' : 'hidden'}>
+                  <CropPanel 
+                    selectedImage={selectedImage} 
+                    adjustments={adjustments}
+                    setAdjustments={setAdjustments}
+                  />
                 </div>
                 <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
                   <AIPanel selectedImage={selectedImage} />

@@ -1,20 +1,16 @@
-// src/image_processing.rs
-
 use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
-use serde_json::Value; // Import Value
+use serde_json::Value;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::AppState;
 
-// --- Image Metadata Structure (UPDATED) ---
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageMetadata {
     pub version: u32,
     pub rating: u8,
-    // Store the raw UI adjustments object
     pub adjustments: Value,
 }
 
@@ -23,14 +19,43 @@ impl Default for ImageMetadata {
         ImageMetadata {
             version: 1,
             rating: 0,
-            // Default to a null JSON value, indicating no adjustments
             adjustments: Value::Null,
         }
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct Crop {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
 
-// --- Adjustment Data Structures and Parsing (Unchanged but still vital) ---
+pub fn apply_crop(mut image: DynamicImage, crop_value: &Value) -> DynamicImage {
+    if crop_value.is_null() {
+        return image;
+    }
+    if let Ok(crop) = serde_json::from_value::<Crop>(crop_value.clone()) {
+        let x = crop.x.round() as u32;
+        let y = crop.y.round() as u32;
+        let width = crop.width.round() as u32;
+        let height = crop.height.round() as u32;
+
+        if width > 0 && height > 0 {
+            let (img_w, img_h) = image.dimensions();
+            if x < img_w && y < img_h {
+                let new_width = (img_w - x).min(width);
+                let new_height = (img_h - y).min(height);
+                if new_width > 0 && new_height > 0 {
+                    image = image.crop_imm(x, y, new_width, new_height);
+                }
+            }
+        }
+    }
+    image
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
@@ -140,8 +165,6 @@ pub fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustme
         blue_curve_count: blue_points.len() as u32,
     }
 }
-
-// --- GPU Processing ---
 
 #[derive(Clone)]
 pub struct GpuContext {
@@ -463,15 +486,17 @@ pub struct HistogramData {
 
 #[tauri::command]
 pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData, String> {
-    let image = state.quick_preview_image.lock().unwrap().clone()
+    let image = state.original_image.lock().unwrap().clone()
         .ok_or("No image loaded to generate histogram")?;
     
+    let preview = image.thumbnail(512, 512);
+
     let mut red = vec![0; 256];
     let mut green = vec![0; 256];
     let mut blue = vec![0; 256];
     let mut luma = vec![0; 256];
 
-    for pixel in image.to_rgb8().pixels() {
+    for pixel in preview.to_rgb8().pixels() {
         let r = pixel[0] as usize;
         let g = pixel[1] as usize;
         let b = pixel[2] as usize;
@@ -494,14 +519,29 @@ pub fn generate_processed_histogram(
     js_adjustments: serde_json::Value,
     state: tauri::State<AppState>,
 ) -> Result<HistogramData, String> {
-    let image = state.quick_preview_image.lock().unwrap().clone()
-        .ok_or("No image loaded to generate histogram")?;
     let context = get_or_init_gpu_context(&state)?;
+    
+    let cache_lock = state.preview_cache.lock().unwrap();
+    let current_crop_value = &js_adjustments["crop"];
+
+    let cache_is_valid = match &*cache_lock {
+        Some(cache) => &cache.crop_value == current_crop_value,
+        None => false,
+    };
+
+    let preview_base = if cache_is_valid {
+        cache_lock.as_ref().unwrap().quick_preview_base.clone()
+    } else {
+        let original_image = state.original_image.lock().unwrap().clone()
+            .ok_or("No image loaded to generate histogram")?;
+        let cropped_image = apply_crop(original_image, current_crop_value);
+        cropped_image.thumbnail(800, 800)
+    };
 
     let adjustments = get_adjustments_from_json(&js_adjustments);
-
-    let processed_pixels = run_gpu_processing(&context, &image, adjustments)?;
-    let (width, height) = image.dimensions();
+    let processed_pixels = run_gpu_processing(&context, &preview_base, adjustments)?;
+    
+    let (width, height) = preview_base.dimensions();
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data for histogram")?;
 

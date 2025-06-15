@@ -1,5 +1,3 @@
-// src/main.rs
-
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod image_processing;
@@ -9,22 +7,28 @@ use std::io::Cursor;
 use std::sync::Mutex;
 use std::thread;
 
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, imageops::FilterType};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 
 use crate::image_processing::{
-    get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, Adjustments, GpuContext, ImageMetadata,
+    get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext, ImageMetadata, apply_crop,
 };
 use crate::file_management::get_sidecar_path;
 
+#[derive(Clone)]
+struct PreviewCache {
+    crop_value: Value,
+    quick_preview_base: DynamicImage,
+    final_preview_base: DynamicImage,
+}
+
 pub struct AppState {
     original_image: Mutex<Option<DynamicImage>>,
-    quick_preview_image: Mutex<Option<DynamicImage>>,
-    final_preview_image: Mutex<Option<DynamicImage>>,
     gpu_context: Mutex<Option<GpuContext>>,
+    preview_cache: Mutex<Option<PreviewCache>>,
 }
 
 #[derive(serde::Serialize)]
@@ -49,34 +53,11 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
     let (orig_width, orig_height) = img.dimensions();
 
     const DISPLAY_PREVIEW_DIM: u32 = 1280;
-    const FINAL_PREVIEW_MAX_DIM: u32 = 2160;
-
-    let ((original_base64_result, quick_preview), final_preview) = rayon::join(
-        || rayon::join(
-            || {
-                let preview = img.thumbnail(DISPLAY_PREVIEW_DIM, DISPLAY_PREVIEW_DIM);
-                encode_to_base64(&preview, 85)
-            },
-            || {
-                let new_width = (orig_width / 3).max(1);
-                let new_height = (orig_height / 3).max(1);
-                img.resize(new_width, new_height, FilterType::Triangle)
-            }
-        ),
-        || {
-            if orig_width > FINAL_PREVIEW_MAX_DIM || orig_height > FINAL_PREVIEW_MAX_DIM {
-                img.thumbnail(FINAL_PREVIEW_MAX_DIM, FINAL_PREVIEW_MAX_DIM)
-            } else {
-                img.clone()
-            }
-        }
-    );
-
-    let original_base64 = original_base64_result?;
+    let display_preview = img.thumbnail(DISPLAY_PREVIEW_DIM, DISPLAY_PREVIEW_DIM);
+    let original_base64 = encode_to_base64(&display_preview, 85)?;
 
     *state.original_image.lock().unwrap() = Some(img);
-    *state.quick_preview_image.lock().unwrap() = Some(quick_preview);
-    *state.final_preview_image.lock().unwrap() = Some(final_preview);
+    *state.preview_cache.lock().unwrap() = None;
 
     let sidecar_path = get_sidecar_path(&path);
     let metadata = if sidecar_path.exists() {
@@ -94,13 +75,15 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
     })
 }
 
-fn process_and_encode_image(
+fn process_image_for_preview(
     context: &GpuContext,
     image: &DynamicImage,
-    adjustments: Adjustments,
+    js_adjustments: &Value,
     quality: u8,
 ) -> Result<String, String> {
-    let processed_pixels = run_gpu_processing(context, image, adjustments)?;
+    let gpu_adjustments = get_adjustments_from_json(js_adjustments);
+    
+    let processed_pixels = run_gpu_processing(context, image, gpu_adjustments)?;
     let (width, height) = image.dimensions();
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data")?;
@@ -108,6 +91,8 @@ fn process_and_encode_image(
     encode_to_base64(&DynamicImage::ImageRgba8(img_buf), quality)
 }
 
+// --- UPDATED apply_adjustments ---
+// Implements the caching logic for huge performance gains on non-crop adjustments.
 #[tauri::command]
 fn apply_adjustments(
     js_adjustments: serde_json::Value,
@@ -115,16 +100,40 @@ fn apply_adjustments(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let context = get_or_init_gpu_context(&state)?;
-    let quick_preview = state.quick_preview_image.lock().unwrap().clone().ok_or("No quick preview image loaded")?;
-    let final_preview = state.final_preview_image.lock().unwrap().clone().ok_or("No final preview image loaded")?;
+    let adjustments_clone = js_adjustments.clone();
+    
+    let mut cache_lock = state.preview_cache.lock().unwrap();
+    let current_crop_value = &js_adjustments["crop"];
 
-    let adjustments = get_adjustments_from_json(&js_adjustments);
+    let cache_is_valid = match &*cache_lock {
+        Some(cache) => &cache.crop_value == current_crop_value,
+        None => false,
+    };
+
+    let (quick_preview_base, final_preview_base) = if cache_is_valid {
+        let cache = cache_lock.as_ref().unwrap();
+        (cache.quick_preview_base.clone(), cache.final_preview_base.clone())
+    } else {
+        let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+        
+        let cropped_image = apply_crop(original_image, current_crop_value);
+        
+        let new_quick_base = cropped_image.thumbnail(800, 800);
+        let new_final_base = cropped_image.thumbnail(2160, 2160);
+
+        *cache_lock = Some(PreviewCache {
+            crop_value: current_crop_value.clone(),
+            quick_preview_base: new_quick_base.clone(),
+            final_preview_base: new_final_base.clone(),
+        });
+        (new_quick_base, new_final_base)
+    };
 
     thread::spawn(move || {
-        if let Ok(base64_str) = process_and_encode_image(&context, &quick_preview, adjustments, 65) {
+        if let Ok(base64_str) = process_image_for_preview(&context, &quick_preview_base, &adjustments_clone, 65) {
             app_handle.emit("preview-update-quick", base64_str).unwrap();
         }
-        if let Ok(base64_str) = process_and_encode_image(&context, &final_preview, adjustments, 85) {
+        if let Ok(base64_str) = process_image_for_preview(&context, &final_preview_base, &adjustments_clone, 85) {
             app_handle.emit("preview-update-final", base64_str).unwrap();
         }
     });
@@ -139,9 +148,9 @@ fn generate_fullscreen_preview(
 ) -> Result<String, String> {
     let context = get_or_init_gpu_context(&state)?;
     let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
-    let adjustments = get_adjustments_from_json(&js_adjustments);
-
-    process_and_encode_image(&context, &original_image, adjustments, 90)
+    
+    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    process_image_for_preview(&context, &cropped_image, &js_adjustments, 90)
 }
 
 #[tauri::command]
@@ -152,10 +161,11 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
     };
     let context = get_or_init_gpu_context(&state)?;
     
-    let adjustments = get_adjustments_from_json(&js_adjustments);
+    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    let gpu_adjustments = get_adjustments_from_json(&js_adjustments);
 
-    let processed_pixels = run_gpu_processing(&context, &original_image, adjustments)?;
-    let (width, height) = original_image.dimensions();
+    let processed_pixels = run_gpu_processing(&context, &cropped_image, gpu_adjustments)?;
+    let (width, height) = cropped_image.dimensions();
     let final_image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create final image buffer")?;
     final_image.save(&path).map_err(|e| e.to_string())?;
@@ -206,9 +216,8 @@ fn main() {
         })
         .manage(AppState {
             original_image: Mutex::new(None),
-            quick_preview_image: Mutex::new(None),
-            final_preview_image: Mutex::new(None),
             gpu_context: Mutex::new(None),
+            preview_cache: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             load_image,

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Folder, Image as ImageIcon, RefreshCw } from 'lucide-react';
-import Button from './ui/Button';
-import FolderTree from './FolderTree';
+import Button from '../ui/Button';
+import FolderTree from '../panel/FolderTree';
 
 function Thumbnail({ path, data, onDoubleClick }) {
   return (

@@ -4,13 +4,35 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
+use serde_json::Value; // Import Value
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::AppState;
 
-// --- Adjustment Data Structures and Parsing (Unchanged) ---
+// --- Image Metadata Structure (UPDATED) ---
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageMetadata {
+    pub version: u32,
+    pub rating: u8,
+    // Store the raw UI adjustments object
+    pub adjustments: Value,
+}
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
+impl Default for ImageMetadata {
+    fn default() -> Self {
+        ImageMetadata {
+            version: 1,
+            rating: 0,
+            // Default to a null JSON value, indicating no adjustments
+            adjustments: Value::Null,
+        }
+    }
+}
+
+
+// --- Adjustment Data Structures and Parsing (Unchanged but still vital) ---
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct Point {
     x: f32,
@@ -19,7 +41,7 @@ pub struct Point {
     _pad2: f32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct HslColor {
     hue: f32,
@@ -28,7 +50,7 @@ pub struct HslColor {
     _pad: f32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct Adjustments {
     pub exposure: f32,
@@ -55,7 +77,7 @@ pub struct Adjustments {
 }
 
 fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
-    let mut hsl_array = [HslColor { hue: 0.0, saturation: 0.0, luminance: 0.0, _pad: 0.0 }; 8];
+    let mut hsl_array = [HslColor::default(); 8];
     if let Some(hsl_map) = js_hsl.as_object() {
         let color_map = [
             ("reds", 0), ("oranges", 1), ("yellows", 2), ("greens", 3),
@@ -76,7 +98,7 @@ fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
 }
 
 fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point; 16] {
-    let mut aligned_points = [Point { x: 0.0, y: 0.0, _pad1: 0.0, _pad2: 0.0 }; 16];
+    let mut aligned_points = [Point::default(); 16];
     for (i, point) in frontend_points.iter().enumerate().take(16) {
         if let (Some(x), Some(y)) = (point["x"].as_f64(), point["y"].as_f64()) {
             aligned_points[i] = Point { x: x as f32, y: y as f32, _pad1: 0.0, _pad2: 0.0 };
@@ -86,6 +108,9 @@ fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point;
 }
 
 pub fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustments {
+    if js_adjustments.is_null() {
+        return Adjustments::default();
+    }
     let curves_obj = js_adjustments.get("curves").cloned().unwrap_or_default();
     let luma_points: Vec<serde_json::Value> = curves_obj["luma"].as_array().cloned().unwrap_or_default();
     let red_points: Vec<serde_json::Value> = curves_obj["red"].as_array().cloned().unwrap_or_default();

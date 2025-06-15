@@ -1,11 +1,11 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { Save } from 'lucide-react';
-import BasicAdjustments from './BasicAdjustments';
-import CurveGraph from './CurveGraph';
-import Button from './ui/Button';
-import HSL from './HSL';
-import CollapsibleSection from './ui/CollapsibleSection';
+import BasicAdjustments from '../adjustments/BasicAdjustments';
+import CurveGraph from '../adjustments/CurveGraph';
+import Button from '../ui/Button';
+import ColorPanel from '../adjustments/ColorPanel';
+import CollapsibleSection from '../ui/CollapsibleSection';
 
 export default function Controls({ adjustments, setAdjustments, selectedImage, histogram }) {
 
@@ -43,14 +43,15 @@ export default function Controls({ adjustments, setAdjustments, selectedImage, h
           alert(`Failed to save image: ${error}`);
         }
       }
-    } catch (error) {
+    } catch (error)
+    {
       console.error('Dialog error:', error);
     }
   };
 
   return (
-    <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden">
-      <div className="p-4 flex justify-between items-center">
+    <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden h-full">
+      <div className="p-4 flex justify-between items-center flex-shrink-0">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">Adjustments</h2>
         <Button
           onClick={handleExportImage}
@@ -61,19 +62,27 @@ export default function Controls({ adjustments, setAdjustments, selectedImage, h
         </Button>
       </div>
       <div className="flex-grow overflow-y-auto p-2 flex flex-col gap-2">
-        <CollapsibleSection title="Basic" defaultOpen={true}>
-          <BasicAdjustments adjustments={adjustments} setAdjustments={setAdjustments} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Curves" defaultOpen={false}>
-          <CurveGraph 
-            adjustments={adjustments} 
-            setAdjustments={setAdjustments} 
-            histogram={histogram} 
-          />
-        </CollapsibleSection>
-        <CollapsibleSection title="Color" defaultOpen={false}>
-          <HSL adjustments={adjustments} setAdjustments={setAdjustments} />
-        </CollapsibleSection>
+        {/* --- THE FIX IS HERE --- */}
+        <div className="flex-shrink-0">
+          <CollapsibleSection title="Basic" defaultOpen={true}>
+            <BasicAdjustments adjustments={adjustments} setAdjustments={setAdjustments} />
+          </CollapsibleSection>
+        </div>
+        <div className="flex-shrink-0">
+          <CollapsibleSection title="Curves" defaultOpen={false}>
+            <CurveGraph 
+              adjustments={adjustments} 
+              setAdjustments={setAdjustments} 
+              histogram={histogram} 
+            />
+          </CollapsibleSection>
+        </div>
+        <div className="flex-shrink-0">
+          <CollapsibleSection title="Color" defaultOpen={false}>
+            {/* In your provided code, this component is named ColorPanel */}
+            <ColorPanel adjustments={adjustments} setAdjustments={setAdjustments} />
+          </CollapsibleSection>
+        </div>
       </div>
     </div>
   );

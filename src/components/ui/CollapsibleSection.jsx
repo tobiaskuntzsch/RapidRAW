@@ -4,28 +4,37 @@ import { ChevronDown } from 'lucide-react';
 export default function CollapsibleSection({ title, children, defaultOpen = true }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const contentRef = useRef(null);
-  const [height, setHeight] = useState(defaultOpen ? 'auto' : '0px');
-
-  useEffect(() => {
-    if (contentRef.current) {
-      const scrollHeight = contentRef.current.scrollHeight;
-      setHeight(isOpen ? `${scrollHeight}px` : '0px');
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (isOpen && contentRef.current) {
-      const scrollHeight = contentRef.current.scrollHeight;
-      setHeight(`${scrollHeight}px`);
-    }
-  }, [children, isOpen]);
+  const wrapperRef = useRef(null);
 
   const toggleOpen = () => {
     setIsOpen(!isOpen);
   };
 
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    const content = contentRef.current;
+    if (!wrapper || !content) return;
+
+    const updateMaxHeight = () => {
+      if (isOpen) {
+        const contentHeight = content.scrollHeight;
+        wrapper.style.maxHeight = `${contentHeight}px`;
+      } else {
+        wrapper.style.maxHeight = '0px';
+      }
+    };
+
+    updateMaxHeight();
+
+    const resizeObserver = new ResizeObserver(updateMaxHeight);
+    resizeObserver.observe(content);
+
+    return () => resizeObserver.disconnect();
+
+  }, [isOpen]);
+
   return (
-    <div className="bg-surface rounded-lg overflow-hidden">
+    <div className="bg-surface rounded-lg overflow-hidden flex-shrink-0">
       <button
         onClick={toggleOpen}
         className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-card-active transition-colors duration-200"
@@ -37,11 +46,10 @@ export default function CollapsibleSection({ title, children, defaultOpen = true
         />
       </button>
       <div
-        ref={contentRef}
-        style={{ height }}
+        ref={wrapperRef}
         className="overflow-hidden transition-all duration-300 ease-in-out"
       >
-        <div className="px-4 pb-4">
+        <div ref={contentRef} className="px-4 pb-4">
           {children}
         </div>
       </div>

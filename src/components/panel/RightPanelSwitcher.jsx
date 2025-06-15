@@ -1,0 +1,31 @@
+// src/components/panel/RightPanelSwitcher.jsx
+
+import { SlidersHorizontal, Info, Scaling, Sparkles } from 'lucide-react';
+
+const panelOptions = [
+  { id: 'metadata', icon: Info, title: 'Metadata' },
+  { id: 'adjustments', icon: SlidersHorizontal, title: 'Adjustments' },
+  { id: 'resize', icon: Scaling, title: 'Resize' },
+  { id: 'ai', icon: Sparkles, title: 'AI Tools' },
+];
+
+export default function RightPanelSwitcher({ activePanel, onPanelSelect }) {
+  return (
+    <div className="flex flex-col bg-bg-secondary rounded-lg p-1 gap-1 h-full">
+      {panelOptions.map(({ id, icon: Icon, title }) => (
+        <button
+          key={id}
+          onClick={() => onPanelSelect(id)}
+          title={title}
+          className={`p-2 rounded-md transition-colors duration-200 ${
+            activePanel === id
+              ? 'bg-surface text-white'
+              : 'text-text-secondary hover:bg-surface hover:text-text-primary'
+          }`}
+        >
+          <Icon size={20} />
+        </button>
+      ))}
+    </div>
+  );
+}

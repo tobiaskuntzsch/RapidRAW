@@ -6,6 +6,7 @@ version = 4
 name = "RapidRAW"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64 0.21.7",
  "blake3",
  "bytemuck",

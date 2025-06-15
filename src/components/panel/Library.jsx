@@ -2,7 +2,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { homeDir } from '@tauri-apps/api/path';
 import { Folder, Image as ImageIcon } from 'lucide-react';
-import Button from './ui/Button';
+import Button from '../ui/Button';
 
 export default function Library({ imageList, setImageList, onImageSelect }) {
   const handleOpenLibrary = async () => {

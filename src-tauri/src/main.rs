@@ -10,14 +10,15 @@ use std::sync::Mutex;
 use std::thread;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, imageops::FilterType};
-use tauri::{Manager, Emitter}; // Manager is still needed for AppHandle
+use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
+use serde_json::Value;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 
-
 use crate::image_processing::{
-    get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, Adjustments, GpuContext,
+    get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, Adjustments, GpuContext, ImageMetadata,
 };
+use crate::file_management::get_sidecar_path;
 
 pub struct AppState {
     original_image: Mutex<Option<DynamicImage>>,
@@ -31,6 +32,7 @@ struct LoadImageResult {
     original_base64: String,
     width: u32,
     height: u32,
+    metadata: ImageMetadata,
 }
 
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
@@ -76,10 +78,19 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
     *state.quick_preview_image.lock().unwrap() = Some(quick_preview);
     *state.final_preview_image.lock().unwrap() = Some(final_preview);
 
+    let sidecar_path = get_sidecar_path(&path);
+    let metadata = if sidecar_path.exists() {
+        let file_content = std::fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&file_content).unwrap_or_default()
+    } else {
+        ImageMetadata::default()
+    };
+
     Ok(LoadImageResult {
         original_base64,
         width: orig_width,
         height: orig_height,
+        metadata,
     })
 }
 
@@ -133,7 +144,6 @@ fn generate_fullscreen_preview(
     process_and_encode_image(&context, &original_image, adjustments, 90)
 }
 
-
 #[tauri::command]
 fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::State<AppState>) -> Result<(), String> {
     let original_image = {
@@ -152,6 +162,30 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
     Ok(())
 }
 
+#[tauri::command]
+fn save_metadata_and_update_thumbnail(
+    path: String,
+    adjustments: Value,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let sidecar_path = get_sidecar_path(&path);
+
+    let metadata = ImageMetadata {
+        version: 1,
+        rating: 0,
+        adjustments,
+    };
+
+    let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
+    std::fs::write(sidecar_path, json_string).map_err(|e| e.to_string())?;
+
+    thread::spawn(move || {
+        let _ = app_handle.emit("thumbnail-progress", serde_json::json!({ "completed": 0, "total": 1 }));
+        let _ = file_management::generate_thumbnails_progressive(vec![path], app_handle);
+    });
+
+    Ok(())
+}
 
 fn main() {
     tauri::Builder::default()
@@ -181,6 +215,7 @@ fn main() {
             apply_adjustments,
             export_image,
             generate_fullscreen_preview,
+            save_metadata_and_update_thumbnail,
             image_processing::generate_histogram,
             image_processing::generate_processed_histogram,
             file_management::list_images_in_dir,

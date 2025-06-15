@@ -1,4 +1,4 @@
-import Slider from './ui/Slider';
+import Slider from '../ui/Slider';
 
 export default function BasicAdjustments({ adjustments, setAdjustments }) {
   const handleAdjustmentChange = (key, value) => {

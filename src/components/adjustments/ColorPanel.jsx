@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Slider from './ui/Slider';
+import Slider from '../ui/Slider';
 
 const ColorSwatch = ({ color, name, isActive, onClick }) => (
     <button

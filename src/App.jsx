@@ -1,5 +1,3 @@
-// App.jsx
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -7,16 +5,21 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
 import TitleBar from './window/TitleBar';
-import MainLibrary from './components/MainLibrary';
-import FolderTree from './components/FolderTree';
-import Editor from './components/Editor';
-import Controls from './components/Controls';
-import Filmstrip from './components/Filmstrip';
+import MainLibrary from './components/panel/MainLibrary';
+import FolderTree from './components/panel/FolderTree';
+import Editor from './components/panel/Editor';
+import Controls from './components/panel/Controls';
+import Filmstrip from './components/panel/Filmstrip';
 import { useThumbnails } from './hooks/useThumbnails';
+import RightPanelSwitcher from './components/panel/RightPanelSwitcher';
+import MetadataPanel from './components/panel/MetadataPanel';
+import ResizePanel from './components/panel/ResizePanel';
+import AIPanel from './components/panel/AIPanel';
 
-const INITIAL_ADJUSTMENTS = {
+
+export const INITIAL_ADJUSTMENTS = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
-  saturation: 0, hue: 0, temperature: 0, tint: 0, vibrance: 0,
+  saturation: 0, temperature: 0, tint: 0, vibrance: 0,
   hsl: {
     reds: { hue: 0, saturation: 0, luminance: 0 }, oranges: { hue: 0, saturation: 0, luminance: 0 },
     yellows: { hue: 0, saturation: 0, luminance: 0 }, greens: { hue: 0, saturation: 0, luminance: 0 },
@@ -53,10 +56,20 @@ function App() {
   const [isFullScreenLoading, setIsFullScreenLoading] = useState(false);
   const [fullScreenUrl, setFullScreenUrl] = useState(null);
 
+  const [activeRightPanel, setActiveRightPanel] = useState('adjustments');
+
   const { thumbnails } = useThumbnails(imageList);
 
   const loaderTimeoutRef = useRef(null);
   const folderTreeTimeoutRef = useRef(null);
+
+  const handleRightPanelSelect = (panelId) => {
+    if (panelId === activeRightPanel) {
+      setActiveRightPanel(null);
+    } else {
+      setActiveRightPanel(panelId);
+    }
+  };
 
   useEffect(() => {
     const listeners = [
@@ -102,12 +115,23 @@ function App() {
       .catch(err => console.error("Failed to generate processed histogram:", err));
   }, 200), [selectedImage]);
 
+  const debouncedSave = useCallback(debounce((path, adjustmentsToSave) => {
+    invoke('save_metadata_and_update_thumbnail', { path, adjustments: adjustmentsToSave }).catch(err => {
+        console.error("Auto-save failed:", err);
+        setError(`Failed to save changes: ${err}`);
+    });
+  }, 1500), []);
+
   useEffect(() => {
     if (selectedImage?.isReady) {
       applyAdjustments(adjustments);
+      debouncedSave(selectedImage.path, adjustments);
     }
-    return () => applyAdjustments.cancel();
-  }, [adjustments, selectedImage, applyAdjustments]);
+    return () => {
+      applyAdjustments.cancel();
+      debouncedSave.cancel();
+    }
+  }, [adjustments, selectedImage, applyAdjustments, debouncedSave]);
 
   const handleOpenFolder = async () => {
     try {
@@ -171,8 +195,9 @@ function App() {
     if (selectedImage?.path === path) return;
 
     applyAdjustments.cancel();
+    debouncedSave.cancel();
 
-    setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0 });
+    setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0, metadata: null });
     setIsViewLoading(true);
     setError(null);
     setHistogram(null);
@@ -193,11 +218,19 @@ function App() {
             originalUrl: loadImageResult.original_base64,
             width: loadImageResult.width,
             height: loadImageResult.height,
+            metadata: loadImageResult.metadata,
             isReady: true 
           };
         }
         return currentSelected;
       });
+
+      if (loadImageResult.metadata.adjustments) {
+        setAdjustments(loadImageResult.metadata.adjustments);
+      } else {
+        setAdjustments(INITIAL_ADJUSTMENTS);
+      }
+
     } catch (err) {
       console.error("Failed to load image:", err);
       setError(`Failed to load image: ${err}`);
@@ -280,12 +313,32 @@ function App() {
                 thumbnails={thumbnails}
               />
             </div>
-            <Controls
-              adjustments={adjustments}
-              setAdjustments={setAdjustments}
-              selectedImage={selectedImage}
-              histogram={histogram}
-            />
+            
+            <div className={`flex items-start ${activeRightPanel ? 'gap-2' : ''}`}>
+              <div className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}>
+                <div className={activeRightPanel === 'adjustments' ? 'h-full' : 'hidden'}>
+                  <Controls
+                    adjustments={adjustments}
+                    setAdjustments={setAdjustments}
+                    selectedImage={selectedImage}
+                    histogram={histogram}
+                  />
+                </div>
+                <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
+                  <MetadataPanel selectedImage={selectedImage} />
+                </div>
+                <div className={activeRightPanel === 'resize' ? 'h-full' : 'hidden'}>
+                  <ResizePanel selectedImage={selectedImage} />
+                </div>
+                <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
+                  <AIPanel selectedImage={selectedImage} />
+                </div>
+              </div>
+              <RightPanelSwitcher 
+                activePanel={activeRightPanel}
+                onPanelSelect={handleRightPanelSelect}
+              />
+            </div>
           </div>
         ) : (
           <MainLibrary

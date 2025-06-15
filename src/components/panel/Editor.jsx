@@ -118,17 +118,21 @@ export default function Editor({
   activeRightPanel,
   adjustments,
   setAdjustments,
+  thumbnails,
 }) {
   const [highResLoaded, setHighResLoaded] = useState(false);
+  const [quickPreviewLoaded, setQuickPreviewLoaded] = useState(false);
   const [isLoaderMounted, setIsLoaderMounted] = useState(false);
   const [isLoaderVisible, setIsLoaderVisible] = useState(false);
   const [crop, setCrop] = useState();
   
   const isCropping = activeRightPanel === 'crop';
+  const thumbnailData = thumbnails[selectedImage?.path];
+  const showSpinner = isLoading && !quickPreviewUrl && !thumbnailData;
 
   useEffect(() => {
     let timeoutId;
-    if (isLoading) {
+    if (showSpinner) {
       setIsLoaderMounted(true);
       timeoutId = setTimeout(() => setIsLoaderVisible(true), 50);
     } else {
@@ -136,16 +140,18 @@ export default function Editor({
       timeoutId = setTimeout(() => setIsLoaderMounted(false), 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [isLoading]);
+  }, [showSpinner]);
   
   useEffect(() => {
     if (isAdjusting) {
       setHighResLoaded(false);
+      setQuickPreviewLoaded(false);
     }
   }, [isAdjusting]);
 
   useEffect(() => {
     setHighResLoaded(false);
+    setQuickPreviewLoaded(false);
     setCrop(undefined);
   }, [selectedImage?.path]);
 
@@ -270,7 +276,7 @@ export default function Editor({
 
         <div className="flex-1 relative overflow-hidden rounded-lg">
           {isLoaderMounted && (
-            <div className={`absolute inset-0 bg-bg-secondary/80 flex items-center justify-center z-20 transition-opacity duration-300 ease-in-out ${isLoaderVisible ? 'opacity-100' : 'opacity-0'}`}>
+            <div className={`absolute inset-0 bg-bg-secondary/80 flex items-center justify-center z-50 transition-opacity duration-300 ease-in-out ${isLoaderVisible ? 'opacity-100' : 'opacity-0'}`}>
               <Loader2 size={48} className="animate-spin text-accent" />
             </div>
           )}
@@ -310,11 +316,25 @@ export default function Editor({
                     style={{ opacity: showOriginal ? 1 : 0, pointerEvents: 'none' }} 
                   />
                   
+                  {!showOriginal && thumbnailData && (
+                    <img
+                      src={thumbnailData}
+                      alt="Thumbnail"
+                      className={baseImageClasses}
+                      style={{
+                        opacity: quickPreviewLoaded ? 0 : 1,
+                        zIndex: 1,
+                      }}
+                    />
+                  )}
+
                   {!showOriginal && quickPreviewUrl && (
                     <img
                       src={quickPreviewUrl}
                       alt="Preview"
+                      onLoad={() => setQuickPreviewLoaded(true)}
                       className={baseImageClasses}
+                      style={{ zIndex: 2 }}
                     />
                   )}
 
@@ -326,6 +346,7 @@ export default function Editor({
                       className={highResImageClasses}
                       style={{
                         opacity: highResLoaded ? 1 : 0,
+                        zIndex: 3,
                       }}
                     />
                   )}

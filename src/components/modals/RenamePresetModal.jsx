@@ -1,0 +1,94 @@
+import { useState, useEffect } from 'react';
+
+export default function RenamePresetModal({ isOpen, onClose, onSave, currentName }) {
+  const [name, setName] = useState('');
+  const [show, setShow] = useState(false);
+
+  // This effect handles the enter/exit animations.
+  // It uses requestAnimationFrame to ensure the transition classes are applied
+  // after the component is mounted, allowing the animation to run.
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setShow(true));
+    } else {
+      setShow(false);
+    }
+  }, [isOpen]);
+
+  // This effect sets the input's value when the modal opens
+  // and clears it when it closes, just like the AddPresetModal.
+  useEffect(() => {
+    if (isOpen) {
+      setName(currentName || '');
+    } else {
+      // Reset name on close to ensure it's fresh next time
+      setName('');
+    }
+  }, [isOpen, currentName]);
+
+  // Don't render the component if it's not open
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleSave = () => {
+    // Only save if the name is valid and has actually changed
+    if (name.trim() && name.trim() !== currentName) {
+      onSave(name.trim());
+    } else {
+      // If the name is the same, just close the modal without saving
+      onClose();
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleSave();
+    } else if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      className={`fixed inset-0 bg-black flex items-center justify-center z-50 transition-opacity duration-300 ${
+        show ? 'bg-opacity-50 opacity-100' : 'bg-opacity-0 opacity-0'
+      }`}
+      onClick={onClose} // Close modal on overlay click
+    >
+      <div
+        className={`bg-surface rounded-lg shadow-xl p-6 w-full max-w-sm transform transition-all duration-300 ${
+          show ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        }`}
+        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
+      >
+        <h3 className="text-lg font-semibold text-text-primary mb-4">Rename Preset</h3>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Enter new preset name..."
+          autoFocus
+          className="w-full bg-bg-primary text-text-primary border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent"
+        />
+        <div className="flex justify-end gap-3 mt-5">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-md text-text-secondary hover:bg-surface transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            // Disable the button if the name is empty or hasn't changed
+            disabled={!name.trim() || name.trim() === currentName}
+            className="px-4 py-2 rounded-md bg-bg-primary text-white font-semibold hover:bg-accent-hover disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

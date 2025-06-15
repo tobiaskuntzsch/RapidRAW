@@ -8,13 +8,17 @@ import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
 import Editor from './components/panel/Editor';
-import Controls from './components/panel/Controls';
+import Controls from './components/panel/right/Controls';
 import Filmstrip from './components/panel/Filmstrip';
 import { useThumbnails } from './hooks/useThumbnails';
-import RightPanelSwitcher from './components/panel/RightPanelSwitcher';
-import MetadataPanel from './components/panel/MetadataPanel';
-import CropPanel from './components/panel/CropPanel';
-import AIPanel from './components/panel/AIPanel';
+import RightPanelSwitcher from './components/panel/right/RightPanelSwitcher';
+import MetadataPanel from './components/panel/right/MetadataPanel';
+import CropPanel from './components/panel/right/CropPanel';
+import PresetsPanel from './components/panel/right/PresetsPanel';
+import AIPanel from './components/panel/right/AIPanel';
+import ExportPanel from './components/panel/right/ExportPanel';
+import { ContextMenuProvider } from './context/ContextMenuContext';
+import ContextMenu from './components/ui/ContextMenu';
 
 
 export const INITIAL_ADJUSTMENTS = {
@@ -115,14 +119,14 @@ function App() {
     invoke('generate_processed_histogram', { jsAdjustments: currentAdjustments })
       .then(setHistogram)
       .catch(err => console.error("Failed to generate processed histogram:", err));
-  }, 200), [selectedImage]);
+  }, 100), [selectedImage]);
 
   const debouncedSave = useCallback(debounce((path, adjustmentsToSave) => {
     invoke('save_metadata_and_update_thumbnail', { path, adjustments: adjustmentsToSave }).catch(err => {
         console.error("Auto-save failed:", err);
         setError(`Failed to save changes: ${err}`);
     });
-  }, 1500), []);
+  }, 500), []);
 
   useEffect(() => {
     if (selectedImage?.isReady) {
@@ -228,7 +232,6 @@ function App() {
       });
 
       if (loadImageResult.metadata.adjustments && !loadImageResult.metadata.adjustments.is_null) {
-        // Deep merge with initial adjustments to ensure all keys are present
         setAdjustments(prev => ({
           ...INITIAL_ADJUSTMENTS,
           ...prev,
@@ -276,102 +279,120 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden">
-      <TitleBar />
+    <ContextMenuProvider>
+      <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden select-none">
+        <TitleBar />
+        <ContextMenu />
 
-      <div className="flex-1 flex flex-col pt-12 p-2 gap-2 min-h-0">
-        {error && (
-          <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
-            {error}
-            <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
-          </div>
-        )}
-
-        {selectedImage ? (
-          <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
-            <FolderTree 
-              tree={folderTree} 
-              onFolderSelect={handleSelectSubfolder} 
-              selectedPath={currentFolderPath} 
-              isLoading={isTreeLoading}
-              isVisible={isFolderTreeVisible}
-              setIsVisible={setIsFolderTreeVisible}
-            />
-            <div className="flex-1 flex flex-col relative min-w-0 gap-2">
-              <Editor
-                selectedImage={selectedImage}
-                quickPreviewUrl={quickPreviewUrl}
-                finalPreviewUrl={finalPreviewUrl}
-                showOriginal={showOriginal}
-                setShowOriginal={setShowOriginal}
-                isAdjusting={isAdjusting}
-                onBackToLibrary={handleBackToLibrary}
-                isLoading={isViewLoading}
-                isFullScreen={isFullScreen}
-                isFullScreenLoading={isFullScreenLoading}
-                fullScreenUrl={fullScreenUrl}
-                onToggleFullScreen={handleToggleFullScreen}
-                activeRightPanel={activeRightPanel}
-                adjustments={adjustments}
-                setAdjustments={setAdjustments}
-              />
-              <Filmstrip
-                imageList={imageList}
-                selectedImage={selectedImage}
-                onImageSelect={handleImageSelect}
-                isVisible={isFilmstripVisible}
-                setIsVisible={setIsFilmstripVisible}
-                isLoading={isViewLoading}
-                thumbnails={thumbnails}
-              />
+        <div className="flex-1 flex flex-col pt-12 p-2 gap-2 min-h-0">
+          {error && (
+            <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
+              {error}
+              <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
             </div>
-            
-            <div className={`flex items-start ${activeRightPanel ? 'gap-2' : ''}`}>
-              <div className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}>
-                <div className={activeRightPanel === 'adjustments' ? 'h-full' : 'hidden'}>
-                  <Controls
-                    adjustments={adjustments}
-                    setAdjustments={setAdjustments}
-                    selectedImage={selectedImage}
-                    histogram={histogram}
-                  />
-                </div>
-                <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
-                  <MetadataPanel selectedImage={selectedImage} />
-                </div>
-                <div className={activeRightPanel === 'crop' ? 'h-full' : 'hidden'}>
-                  <CropPanel 
-                    selectedImage={selectedImage} 
-                    adjustments={adjustments}
-                    setAdjustments={setAdjustments}
-                  />
-                </div>
-                <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
-                  <AIPanel selectedImage={selectedImage} />
-                </div>
+          )}
+
+          {selectedImage ? (
+            <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
+              <FolderTree 
+                tree={folderTree} 
+                onFolderSelect={handleSelectSubfolder} 
+                selectedPath={currentFolderPath} 
+                isLoading={isTreeLoading}
+                isVisible={isFolderTreeVisible}
+                setIsVisible={setIsFolderTreeVisible}
+              />
+              <div className="flex-1 flex flex-col relative min-w-0 gap-2">
+                <Editor
+                  selectedImage={selectedImage}
+                  quickPreviewUrl={quickPreviewUrl}
+                  finalPreviewUrl={finalPreviewUrl}
+                  showOriginal={showOriginal}
+                  setShowOriginal={setShowOriginal}
+                  isAdjusting={isAdjusting}
+                  onBackToLibrary={handleBackToLibrary}
+                  isLoading={isViewLoading}
+                  isFullScreen={isFullScreen}
+                  isFullScreenLoading={isFullScreenLoading}
+                  fullScreenUrl={fullScreenUrl}
+                  onToggleFullScreen={handleToggleFullScreen}
+                  activeRightPanel={activeRightPanel}
+                  adjustments={adjustments}
+                  setAdjustments={setAdjustments}
+                  thumbnails={thumbnails}
+                />
+                <Filmstrip
+                  imageList={imageList}
+                  selectedImage={selectedImage}
+                  onImageSelect={handleImageSelect}
+                  isVisible={isFilmstripVisible}
+                  setIsVisible={setIsFilmstripVisible}
+                  isLoading={isViewLoading}
+                  thumbnails={thumbnails}
+                />
               </div>
-              <RightPanelSwitcher 
-                activePanel={activeRightPanel}
-                onPanelSelect={handleRightPanelSelect}
-              />
+              
+              <div className={`flex items-start ${activeRightPanel ? 'gap-2' : ''}`}>
+                <div className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}>
+                  <div className={activeRightPanel === 'adjustments' ? 'h-full' : 'hidden'}>
+                    <Controls
+                      adjustments={adjustments}
+                      setAdjustments={setAdjustments}
+                      selectedImage={selectedImage}
+                      histogram={histogram}
+                    />
+                  </div>
+                  <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
+                    <MetadataPanel selectedImage={selectedImage} />
+                  </div>
+                  <div className={activeRightPanel === 'crop' ? 'h-full' : 'hidden'}>
+                    <CropPanel 
+                      selectedImage={selectedImage} 
+                      adjustments={adjustments}
+                      setAdjustments={setAdjustments}
+                    />
+                  </div>
+                  <div className={activeRightPanel === 'presets' ? 'h-full' : 'hidden'}>
+                    <PresetsPanel
+                      adjustments={adjustments}
+                      setAdjustments={setAdjustments}
+                      selectedImage={selectedImage}
+                      activePanel={activeRightPanel}
+                    />
+                  </div>
+                  <div className={activeRightPanel === 'export' ? 'h-full' : 'hidden'}>
+                    <ExportPanel
+                      selectedImage={selectedImage}
+                      adjustments={adjustments}
+                    />
+                  </div>
+                  <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
+                    <AIPanel selectedImage={selectedImage} />
+                  </div>
+                </div>
+                <RightPanelSwitcher 
+                  activePanel={activeRightPanel}
+                  onPanelSelect={handleRightPanelSelect}
+                />
+              </div>
             </div>
-          </div>
-        ) : (
-          <MainLibrary
-            imageList={imageList}
-            onImageSelect={handleImageSelect}
-            rootPath={rootPath}
-            currentFolderPath={currentFolderPath}
-            folderTree={folderTree}
-            onFolderSelect={handleSelectSubfolder}
-            onOpenFolder={handleOpenFolder}
-            isTreeLoading={isTreeLoading}
-            isLoading={isViewLoading}
-            thumbnails={thumbnails}
-          />
-        )}
+          ) : (
+            <MainLibrary
+              imageList={imageList}
+              onImageSelect={handleImageSelect}
+              rootPath={rootPath}
+              currentFolderPath={currentFolderPath}
+              folderTree={folderTree}
+              onFolderSelect={handleSelectSubfolder}
+              onOpenFolder={handleOpenFolder}
+              isTreeLoading={isTreeLoading}
+              isLoading={isViewLoading}
+              thumbnails={thumbnails}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </ContextMenuProvider>
   );
 }
 

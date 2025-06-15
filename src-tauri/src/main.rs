@@ -12,6 +12,8 @@ use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
+use serde::{Serialize, Deserialize};
+use std::fs;
 
 use crate::image_processing::{
     get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext, ImageMetadata, apply_crop,
@@ -29,6 +31,13 @@ pub struct AppState {
     original_image: Mutex<Option<DynamicImage>>,
     gpu_context: Mutex<Option<GpuContext>>,
     preview_cache: Mutex<Option<PreviewCache>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Preset {
+    id: String,
+    name: String,
+    adjustments: Value,
 }
 
 #[derive(serde::Serialize)]
@@ -91,8 +100,6 @@ fn process_image_for_preview(
     encode_to_base64(&DynamicImage::ImageRgba8(img_buf), quality)
 }
 
-// --- UPDATED apply_adjustments ---
-// Implements the caching logic for huge performance gains on non-crop adjustments.
 #[tauri::command]
 fn apply_adjustments(
     js_adjustments: serde_json::Value,
@@ -197,6 +204,59 @@ fn save_metadata_and_update_thumbnail(
     Ok(())
 }
 
+fn get_presets_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let presets_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("presets");
+    
+    if !presets_dir.exists() {
+        fs::create_dir_all(&presets_dir).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(presets_dir.join("presets.json"))
+}
+
+#[tauri::command]
+fn load_presets(app_handle: tauri::AppHandle) -> Result<Vec<Preset>, String> {
+    let path = get_presets_path(&app_handle)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_presets(presets: Vec<Preset>, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let path = get_presets_path(&app_handle)?;
+    let json_string = serde_json::to_string_pretty(&presets).map_err(|e| e.to_string())?;
+    fs::write(path, json_string).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn generate_preset_preview(
+    js_adjustments: serde_json::Value,
+    state: tauri::State<AppState>,
+) -> Result<String, String> {
+    let context = get_or_init_gpu_context(&state)?;
+
+    let preview_base = {
+        let cache_lock = state.preview_cache.lock().unwrap();
+        match &*cache_lock {
+            Some(cache) => cache.quick_preview_base.clone(),
+            None => {
+                let original_image = state.original_image.lock().unwrap().clone()
+                    .ok_or("No original image loaded for preset preview")?;
+                original_image.thumbnail(200, 200)
+            }
+        }
+    };
+
+    process_image_for_preview(&context, &preview_base, &js_adjustments, 50)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init()) 
@@ -230,7 +290,10 @@ fn main() {
             file_management::list_images_in_dir,
             file_management::get_folder_tree,
             file_management::generate_thumbnails, 
-            file_management::generate_thumbnails_progressive
+            file_management::generate_thumbnails_progressive,
+            load_presets,
+            save_presets,
+            generate_preset_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

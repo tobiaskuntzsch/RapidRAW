@@ -1,9 +1,10 @@
 // src/components/ui/Slider.jsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 /**
  * A reusable slider component with a double-click-to-reset feature and an interactive handle.
+ * The slider's thumb animates with an "ease-in-out" effect when the value is set programmatically.
  *
  * @param {string} label - The text label for the slider.
  * @param {number|string} value - The current value of the slider.
@@ -14,15 +15,56 @@ import React, { useState } from 'react';
  * @param {number} [defaultValue=0] - The value to reset to on double-click. Defaults to 0.
  */
 const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) => {
-  // State to track if the user is currently dragging the slider handle
+  const [displayValue, setDisplayValue] = useState(Number(value));
   const [isDragging, setIsDragging] = useState(false);
+  const animationFrameRef = useRef();
 
-  /**
-   * Handles the reset action on double-click.
-   * It calls the passed `onChange` function with a synthetic event object
-   * that contains the `defaultValue`. This makes it compatible with any
-   * existing change handler without modification.
-   */
+  useEffect(() => {
+    if (isDragging) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      return;
+    }
+
+    const startValue = displayValue;
+    const endValue = Number(value);
+    const duration = 300; // 0.3s animation
+    let startTime = null;
+
+    /**
+     * An ease-in-out function that starts slow, speeds up, and ends slow.
+     * @param {number} t - A value from 0 to 1 representing animation progress.
+     * @returns {number} The eased value, also from 0 to 1.
+     */
+    const easeInOut = (t) => t * t * (3 - 2 * t);
+
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = timestamp - startTime;
+      const linearFraction = Math.min(progress / duration, 1);
+
+      // Apply the easing function to the linear progress
+      const easedFraction = easeInOut(linearFraction);
+
+      // Use the eased fraction for interpolation
+      const currentValue = startValue + (endValue - startValue) * easedFraction;
+      setDisplayValue(currentValue);
+
+      if (linearFraction < 1) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [value, isDragging]);
+
   const handleReset = () => {
     const syntheticEvent = {
       target: {
@@ -32,20 +74,21 @@ const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) =>
     onChange(syntheticEvent);
   };
 
-  // Convert step to string to safely check for decimal places
+  const handleChange = (e) => {
+    setDisplayValue(Number(e.target.value));
+    onChange(e);
+  };
+
   const stepStr = String(step);
-  const decimalPlaces = stepStr.includes('.') ? 1 : 0;
+  const decimalPlaces = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
   
-  // Ensure value is a valid number, default to 0 if NaN
   const numericValue = isNaN(Number(value)) ? 0 : Number(value);
 
-  // Handlers to set the dragging state for mouse and touch events
   const handleDragStart = () => setIsDragging(true);
   const handleDragEnd = () => setIsDragging(false);
 
   return (
     <div className="mb-2">
-      {/* We attach the onDoubleClick handler to the container of the label and value */}
       <div 
         className="flex justify-between items-center mb-1 cursor-pointer" 
         onDoubleClick={handleReset}
@@ -60,14 +103,12 @@ const Slider = ({ label, value, onChange, min, max, step, defaultValue = 0 }) =>
         min={min}
         max={max}
         step={step}
-        value={numericValue}
-        onChange={onChange}
-        // Add event handlers for mouse and touch interaction
+        value={displayValue}
+        onChange={handleChange}
         onMouseDown={handleDragStart}
         onMouseUp={handleDragEnd}
         onTouchStart={handleDragStart}
         onTouchEnd={handleDragEnd}
-        // Conditionally apply a class when dragging
         className={`w-full h-1.5 bg-card-active rounded-full appearance-none cursor-pointer slider-input ${isDragging ? 'slider-thumb-active' : ''}`}
       />
     </div>

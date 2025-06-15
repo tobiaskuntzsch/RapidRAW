@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::thread;
 
-use anyhow::{Result};
-use base64::{Engine as _, engine::general_purpose};
+use anyhow::Result;
+use base64::{engine::general_purpose, Engine as _};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use rayon::prelude::*;
@@ -18,7 +20,7 @@ use crate::image_processing::{
 };
 use crate::AppState;
 
-const THUMBNAIL_WIDTH: u32 = 256;
+const THUMBNAIL_WIDTH: u32 = 640;
 
 #[tauri::command]
 pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
@@ -30,7 +32,9 @@ pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
         .filter(|path| {
             path.extension()
                 .and_then(|s| s.to_str())
-                .map_or(false, |ext| ["jpg", "jpeg", "png", "gif", "bmp"].contains(&ext.to_lowercase().as_str()))
+                .map_or(false, |ext| {
+                    ["jpg", "jpeg", "png", "gif", "bmp"].contains(&ext.to_lowercase().as_str())
+                })
         })
         .map(|path| path.to_string_lossy().into_owned())
         .collect();
@@ -58,7 +62,11 @@ fn scan_dir_recursive(path: &Path) -> Result<Vec<FolderNode>, std::io::Error> {
                 .map_or(false, |images| !images.is_empty());
             if !sub_children.is_empty() || has_images {
                 children.push(FolderNode {
-                    name: current_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                    name: current_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
                     path: current_path.to_string_lossy().into_owned(),
                     children: sub_children,
                 });
@@ -70,25 +78,31 @@ fn scan_dir_recursive(path: &Path) -> Result<Vec<FolderNode>, std::io::Error> {
 
 fn get_folder_tree_sync(path: String) -> Result<FolderNode, String> {
     let root_path = Path::new(&path);
-    let name = root_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let name = root_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let children = scan_dir_recursive(root_path).map_err(|e| e.to_string())?;
-    Ok(FolderNode { name, path, children })
+    Ok(FolderNode {
+        name,
+        path,
+        children,
+    })
 }
 
 #[tauri::command]
 pub fn get_folder_tree(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     let app_handle_clone = app_handle.clone();
-    thread::spawn(move || {
-        match get_folder_tree_sync(path) {
-            Ok(tree) => {
-                if let Err(e) = app_handle_clone.emit("folder-tree-update", &tree) {
-                    eprintln!("Failed to emit folder-tree-update: {}", e);
-                }
+    thread::spawn(move || match get_folder_tree_sync(path) {
+        Ok(tree) => {
+            if let Err(e) = app_handle_clone.emit("folder-tree-update", &tree) {
+                eprintln!("Failed to emit folder-tree-update: {}", e);
             }
-            Err(e) => {
-                if let Err(emit_err) = app_handle_clone.emit("folder-tree-error", &e) {
-                    eprintln!("Failed to emit folder-tree-error: {}", emit_err);
-                }
+        }
+        Err(e) => {
+            if let Err(emit_err) = app_handle_clone.emit("folder-tree-error", &e) {
+                eprintln!("Failed to emit folder-tree-error: {}", emit_err);
             }
         }
     });
@@ -109,6 +123,8 @@ fn generate_thumbnail_data(
     let original_path = Path::new(path_str);
     let sidecar_path = get_sidecar_path(path_str);
 
+    // Reverted to the standard, reliable image opening method.
+    // The performance gain will come from Rayon's parallelism.
     let mut img = image::open(original_path)?;
 
     if sidecar_path.exists() {
@@ -124,7 +140,11 @@ fn generate_thumbnail_data(
                         {
                             let (width, height) = img.dimensions();
                             if let Some(img_buf) =
-                                ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
+                                ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
+                                    width,
+                                    height,
+                                    processed_pixels,
+                                )
                             {
                                 img = DynamicImage::ImageRgba8(img_buf);
                             }
@@ -147,7 +167,10 @@ pub fn generate_thumbnails(
     paths: Vec<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<HashMap<String, String>, String> {
-    let cache_dir = app_handle.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
     let thumb_cache_dir = cache_dir.join("thumbnails");
     if !thumb_cache_dir.exists() {
         fs::create_dir_all(&thumb_cache_dir).map_err(|e| e.to_string())?;
@@ -162,8 +185,18 @@ pub fn generate_thumbnails(
             let original_path = Path::new(path_str);
             let sidecar_path = get_sidecar_path(path_str);
 
-            let img_mod_time = fs::metadata(original_path).ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
-            let sidecar_mod_time = fs::metadata(&sidecar_path).ok().and_then(|m| m.modified().ok()).map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()).unwrap_or(0);
+            let img_mod_time = fs::metadata(original_path)
+                .ok()?
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            let sidecar_mod_time = fs::metadata(&sidecar_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())
+                .unwrap_or(0);
 
             let mut hasher = blake3::Hasher::new();
             hasher.update(path_str.as_bytes());
@@ -176,14 +209,20 @@ pub fn generate_thumbnails(
             if cache_path.exists() {
                 if let Ok(data) = fs::read(&cache_path) {
                     let base64_str = general_purpose::STANDARD.encode(&data);
-                    return Some((path_str.clone(), format!("data:image/jpeg;base64,{}", base64_str)));
+                    return Some((
+                        path_str.clone(),
+                        format!("data:image/jpeg;base64,{}", base64_str),
+                    ));
                 }
             }
 
             if let Ok(thumb_data) = generate_thumbnail_data(path_str, gpu_context.as_ref()) {
                 let _ = fs::write(&cache_path, &thumb_data);
                 let base64_str = general_purpose::STANDARD.encode(&thumb_data);
-                Some((path_str.clone(), format!("data:image/jpeg;base64,{}", base64_str)))
+                Some((
+                    path_str.clone(),
+                    format!("data:image/jpeg;base64,{}", base64_str),
+                ))
             } else {
                 None
             }
@@ -198,7 +237,10 @@ pub fn generate_thumbnails_progressive(
     paths: Vec<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let cache_dir = app_handle.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
     let thumb_cache_dir = cache_dir.join("thumbnails");
     if !thumb_cache_dir.exists() {
         fs::create_dir_all(&thumb_cache_dir).map_err(|e| e.to_string())?;
@@ -206,19 +248,30 @@ pub fn generate_thumbnails_progressive(
 
     let app_handle_clone = app_handle.clone();
     let total_count = paths.len();
-    
+    let completed_count = Arc::new(AtomicUsize::new(0));
+
     thread::spawn(move || {
         let state = app_handle.state::<AppState>();
         let gpu_context = get_or_init_gpu_context(&state).ok();
-        let mut completed = 0;
 
-        for path_str in paths {
+        // Use Rayon for parallel processing
+        paths.par_iter().for_each(|path_str| {
             let result = (|| -> Option<String> {
-                let original_path = Path::new(&path_str);
-                let sidecar_path = get_sidecar_path(&path_str);
+                let original_path = Path::new(path_str);
+                let sidecar_path = get_sidecar_path(path_str);
 
-                let img_mod_time = fs::metadata(original_path).ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
-                let sidecar_mod_time = fs::metadata(&sidecar_path).ok().and_then(|m| m.modified().ok()).map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()).unwrap_or(0);
+                let img_mod_time = fs::metadata(original_path)
+                    .ok()?
+                    .modified()
+                    .ok()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_secs();
+                let sidecar_mod_time = fs::metadata(&sidecar_path)
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())
+                    .unwrap_or(0);
 
                 let mut hasher = blake3::Hasher::new();
                 hasher.update(path_str.as_bytes());
@@ -235,7 +288,7 @@ pub fn generate_thumbnails_progressive(
                     }
                 }
 
-                if let Ok(thumb_data) = generate_thumbnail_data(&path_str, gpu_context.as_ref()) {
+                if let Ok(thumb_data) = generate_thumbnail_data(path_str, gpu_context.as_ref()) {
                     let _ = fs::write(&cache_path, &thumb_data);
                     let base64_str = general_purpose::STANDARD.encode(&thumb_data);
                     Some(format!("data:image/jpeg;base64,{}", base64_str))
@@ -243,13 +296,22 @@ pub fn generate_thumbnails_progressive(
                     None
                 }
             })();
-            
+
             if let Some(thumbnail_data) = result {
-                let _ = app_handle_clone.emit("thumbnail-generated", serde_json::json!({ "path": path_str, "data": thumbnail_data }));
+                let _ = app_handle_clone.emit(
+                    "thumbnail-generated",
+                    serde_json::json!({ "path": path_str, "data": thumbnail_data }),
+                );
             }
-            completed += 1;
-            let _ = app_handle_clone.emit("thumbnail-progress", serde_json::json!({ "completed": completed, "total": total_count }));
-        }
+
+            // Atomically increment the counter and report progress
+            let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
+            let _ = app_handle_clone.emit(
+                "thumbnail-progress",
+                serde_json::json!({ "completed": completed, "total": total_count }),
+            );
+        });
+
         let _ = app_handle_clone.emit("thumbnail-generation-complete", true);
     });
 

@@ -1,12 +1,12 @@
-// src/components/panel/RightPanelSwitcher.jsx
-
-import { SlidersHorizontal, Info, Scaling, Sparkles } from 'lucide-react';
+import { SlidersHorizontal, Info, Scaling, Sparkles, Bookmark, Save } from 'lucide-react';
 
 const panelOptions = [
   { id: 'metadata', icon: Info, title: 'Metadata' },
   { id: 'adjustments', icon: SlidersHorizontal, title: 'Adjustments' },
   { id: 'crop', icon: Scaling, title: 'Crop' },
+  { id: 'presets', icon: Bookmark, title: 'Presets' },
   { id: 'ai', icon: Sparkles, title: 'AI Tools' },
+  { id: 'export', icon: Save, title: 'Export' },
 ];
 
 export default function RightPanelSwitcher({ activePanel, onPanelSelect }) {

@@ -1,6 +1,6 @@
 import { RotateCcw, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { INITIAL_ADJUSTMENTS } from '../../App';
+import { INITIAL_ADJUSTMENTS } from '../../../App';
 
 const PRESETS = [
   { name: 'Free', value: null },
@@ -94,11 +94,11 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
 
   return (
     <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden h-full">
-      <div className="p-4 flex-shrink-0 border-b border-surface flex justify-between items-center">
+      <div className="p-4 flex justify-between items-center flex-shrink-0">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">Crop & Rotate</h2>
         <button
           onClick={handleReset}
-          className="p-2 rounded-full hover:bg-card-active transition-colors"
+          className="p-2 rounded-full hover:bg-surface transition-colors"
           title="Reset Crop & Aspect Ratio"
         >
           <RotateCcw size={18} />

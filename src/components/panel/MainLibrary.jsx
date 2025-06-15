@@ -1,9 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Folder, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import Button from '../ui/Button';
 import FolderTree from '../panel/FolderTree';
 
 function Thumbnail({ path, data, onDoubleClick }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (data) {
+      setIsLoaded(true);
+    }
+  }, [data]);
+
   return (
     <div
       onClick={() => onDoubleClick(path)}
@@ -14,7 +22,12 @@ function Thumbnail({ path, data, onDoubleClick }) {
         <img
           src={data}
           alt={path}
-          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+          className={`
+            w-full h-full object-cover
+            group-hover:scale-[1.02]
+            transition ease-in-out duration-300
+            ${isLoaded ? 'opacity-100' : 'opacity-0'}
+          `}
           loading="lazy"
         />
       ) : (
@@ -28,6 +41,8 @@ function Thumbnail({ path, data, onDoubleClick }) {
     </div>
   );
 }
+
+// ... the rest of the MainLibrary component remains unchanged ...
 
 export default function MainLibrary({
   imageList,

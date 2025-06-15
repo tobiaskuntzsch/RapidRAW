@@ -1,0 +1,80 @@
+import { useState, useEffect } from 'react';
+
+export default function AddPresetModal({ isOpen, onClose, onSave }) {
+  const [name, setName] = useState('');
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setShow(true));
+    } else {
+      setShow(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setName('');
+    }
+  }, [isOpen]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleSave = () => {
+    if (name.trim()) {
+      onSave(name.trim());
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleSave();
+    } else if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      className={`fixed inset-0 bg-black flex items-center justify-center z-50 transition-opacity duration-300 ${
+        show ? 'bg-opacity-50 opacity-100' : 'bg-opacity-0 opacity-0'
+      }`}
+      onClick={onClose}
+    >
+      <div
+        className={`bg-surface rounded-lg shadow-xl p-6 w-full max-w-sm transform transition-all duration-300 ${
+          show ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-text-primary mb-4">Save New Preset</h3>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Enter preset name..."
+          autoFocus
+          className="w-full bg-bg-primary text-text-primary border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent"
+        />
+        <div className="flex justify-end gap-3 mt-5">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-md text-text-secondary hover:bg-surface transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!name.trim()}
+            className="px-4 py-2 rounded-md bg-bg-primary text-white font-semibold hover:bg-accent-hover disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

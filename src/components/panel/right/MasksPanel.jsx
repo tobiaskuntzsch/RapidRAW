@@ -7,6 +7,8 @@ import { INITIAL_MASK_ADJUSTMENTS } from '../../../App';
 export default function MasksPanel({ adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId }) {
   const [editingMaskId, setEditingMaskId] = useState(null);
 
+  const masks = adjustments.masks || [];
+
   const handleAddMask = (type) => {
     const { width, height } = selectedImage;
     let newMask;
@@ -45,7 +47,7 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
     if (newMask) {
       setAdjustments(prev => ({
         ...prev,
-        masks: [...prev.masks, newMask],
+        masks: [...(prev.masks || []), newMask],
       }));
       onSelectMask(newMask.id);
     }
@@ -60,7 +62,8 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
     }
     setAdjustments(prev => ({
       ...prev,
-      masks: prev.masks.filter(mask => mask.id !== id),
+      // Use the safe 'masks' variable here
+      masks: (prev.masks || []).filter(mask => mask.id !== id),
     }));
   };
 
@@ -77,13 +80,15 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
   const updateMaskAdjustments = (maskId, newMaskAdjustments) => {
     setAdjustments(prev => ({
       ...prev,
-      masks: prev.masks.map(mask =>
+      // Use the safe 'masks' variable here
+      masks: (prev.masks || []).map(mask =>
         mask.id === maskId ? { ...mask, adjustments: newMaskAdjustments } : mask
       ),
     }));
   };
 
-  const editingMask = adjustments.masks.find(m => m.id === editingMaskId);
+  // *** FIX: Use the safe 'masks' variable to find the editing mask ***
+  const editingMask = masks.find(m => m.id === editingMaskId);
 
   if (editingMask) {
     return (
@@ -127,11 +132,13 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
         </div>
       </div>
       <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-2">
-        {adjustments.masks.length === 0 ? (
+        {/* *** FIX: Check length on the safe 'masks' variable *** */}
+        {masks.length === 0 ? (
           <p className="text-sm text-center text-text-tertiary mt-4">No masks added yet. Click a button above to create one.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {adjustments.masks.map((mask, index) => (
+            {/* *** FIX: Map over the safe 'masks' variable *** */}
+            {masks.map((mask, index) => (
               <div
                 key={mask.id}
                 onClick={() => handleSelectMaskForEditing(mask.id)}

@@ -5,6 +5,7 @@ import { useContextMenu } from '../../../context/ContextMenuContext';
 import { Plus, Loader2 } from 'lucide-react';
 import AddPresetModal from '../../modals/AddPresetModal';
 import RenamePresetModal from '../../modals/RenamePresetModal';
+import { INITIAL_ADJUSTMENTS } from '../../../App';
 
 export default function PresetsPanel({ adjustments, setAdjustments, selectedImage, activePanel }) {
   const { presets, isLoading, addPreset, deletePreset, renamePreset } = usePresets(adjustments);
@@ -22,7 +23,8 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
     
     for (const preset of presets) {
       try {
-        const previewUrl = await invoke('generate_preset_preview', { jsAdjustments: preset.adjustments });
+        const fullPresetAdjustments = { ...INITIAL_ADJUSTMENTS, ...preset.adjustments };
+        const previewUrl = await invoke('generate_preset_preview', { jsAdjustments: fullPresetAdjustments });
         newPreviews[preset.id] = previewUrl;
       } catch (error) {
         console.error(`Failed to generate preview for preset ${preset.name}:`, error);
@@ -42,7 +44,11 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
   }, [activePanel, generatePreviews]);
 
   const handleApplyPreset = (preset) => {
-    setAdjustments(preset.adjustments);
+    const newAdjustments = {
+      ...INITIAL_ADJUSTMENTS,
+      ...preset.adjustments,
+    };
+    setAdjustments(newAdjustments);
   };
 
   const handleSavePreset = (name) => {

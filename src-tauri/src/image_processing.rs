@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::AppState;
+use crate::{AppState};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageMetadata {
@@ -56,7 +56,6 @@ pub fn apply_crop(mut image: DynamicImage, crop_value: &Value) -> DynamicImage {
     image
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct Point {
@@ -77,7 +76,7 @@ pub struct HslColor {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
-pub struct Adjustments {
+pub struct GlobalAdjustments {
     pub exposure: f32,
     pub contrast: f32,
     pub highlights: f32,
@@ -99,6 +98,46 @@ pub struct Adjustments {
     pub red_curve_count: u32,
     pub green_curve_count: u32,
     pub blue_curve_count: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct Mask {
+    mask_type: u32,
+    invert: u32,
+    feather: f32,
+    rotation: f32,
+    center_x: f32,
+    center_y: f32,
+    radius_x: f32,
+    radius_y: f32,
+    start_x: f32,
+    start_y: f32,
+    end_x: f32,
+    end_y: f32,
+    exposure: f32,
+    contrast: f32,
+    highlights: f32,
+    shadows: f32,
+    whites: f32,
+    blacks: f32,
+    saturation: f32,
+    temperature: f32,
+    tint: f32,
+    vibrance: f32,
+    _pad1: f32,
+    _pad2: f32,
+}
+
+#[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct AllAdjustments {
+    pub global: GlobalAdjustments,
+    pub masks: [Mask; 16],
+    pub mask_count: u32,
+    pub crop_x: u32,
+    pub crop_y: u32,
+    pub preview_scale: f32,
 }
 
 fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
@@ -132,9 +171,9 @@ fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point;
     aligned_points
 }
 
-pub fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustments {
+fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> GlobalAdjustments {
     if js_adjustments.is_null() {
-        return Adjustments::default();
+        return GlobalAdjustments::default();
     }
     let curves_obj = js_adjustments.get("curves").cloned().unwrap_or_default();
     let luma_points: Vec<serde_json::Value> = curves_obj["luma"].as_array().cloned().unwrap_or_default();
@@ -142,7 +181,7 @@ pub fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustme
     let green_points: Vec<serde_json::Value> = curves_obj["green"].as_array().cloned().unwrap_or_default();
     let blue_points: Vec<serde_json::Value> = curves_obj["blue"].as_array().cloned().unwrap_or_default();
 
-    Adjustments {
+    GlobalAdjustments {
         exposure: js_adjustments["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
         contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         highlights: js_adjustments["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
@@ -166,11 +205,70 @@ pub fn get_adjustments_from_json(js_adjustments: &serde_json::Value) -> Adjustme
     }
 }
 
+pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview_scale: f32) -> AllAdjustments {
+    let global = get_global_adjustments_from_json(js_adjustments);
+    let mut masks = [Mask::default(); 16];
+    let mut mask_count = 0;
+
+    if let Some(js_masks) = js_adjustments.get("masks").and_then(|m| m.as_array()) {
+        for (i, js_mask) in js_masks.iter().enumerate().take(16) {
+            let adj = &js_mask["adjustments"];
+            let geo = &js_mask["geometry"];
+            let mask_type_str = js_mask["type"].as_str().unwrap_or("");
+
+            let mask_type = match mask_type_str {
+                "radial" => 1,
+                "linear" => 2,
+                _ => 0,
+            };
+
+            masks[i] = Mask {
+                mask_type,
+                invert: if js_mask["invert"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                feather: js_mask["feather"].as_f64().unwrap_or(0.5) as f32,
+                rotation: js_mask["rotation"].as_f64().unwrap_or(0.0) as f32,
+                center_x: geo["x"].as_f64().unwrap_or(0.0) as f32,
+                center_y: geo["y"].as_f64().unwrap_or(0.0) as f32,
+                radius_x: geo["radiusX"].as_f64().unwrap_or(0.0) as f32,
+                radius_y: geo["radiusY"].as_f64().unwrap_or(0.0) as f32,
+                start_x: geo["startX"].as_f64().unwrap_or(0.0) as f32,
+                start_y: geo["startY"].as_f64().unwrap_or(0.0) as f32,
+                end_x: geo["endX"].as_f64().unwrap_or(0.0) as f32,
+                end_y: geo["endY"].as_f64().unwrap_or(0.0) as f32,
+                exposure: adj["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+                contrast: adj["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+                highlights: adj["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+                shadows: adj["shadows"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+                whites: adj["whites"].as_f64().unwrap_or(0.0) as f32 / 300.0,
+                blacks: adj["blacks"].as_f64().unwrap_or(0.0) as f32 / 300.0,
+                saturation: adj["saturation"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+                temperature: adj["temperature"].as_f64().unwrap_or(0.0) as f32 / 250.0,
+                tint: adj["tint"].as_f64().unwrap_or(0.0) as f32 / 250.0,
+                vibrance: adj["vibrance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+                _pad1: 0.0, _pad2: 0.0,
+            };
+            mask_count += 1;
+        }
+    }
+
+    let crop_data: Option<Crop> = js_adjustments.get("crop").and_then(|c| serde_json::from_value(c.clone()).ok());
+    let (crop_x, crop_y) = crop_data.map_or((0, 0), |c| (c.x as u32, c.y as u32));
+
+    AllAdjustments {
+        global,
+        masks,
+        mask_count,
+        crop_x,
+        crop_y,
+        preview_scale,
+    }
+}
+
 #[derive(Clone)]
 pub struct GpuContext {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
-    pub limits: Arc<wgpu::Limits>,
+    pub limits: wgpu::Limits,
 }
 
 pub fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuContext, String> {
@@ -181,7 +279,7 @@ pub fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuCont
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .ok_or("Failed to find a wgpu adapter.")?;
-    
+
     let limits = adapter.limits();
 
     let (device, queue) = pollster::block_on(adapter.request_device(
@@ -193,10 +291,10 @@ pub fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuCont
         None,
     )).map_err(|e| e.to_string())?;
 
-    let new_context = GpuContext { 
-        device: Arc::new(device), 
+    let new_context = GpuContext {
+        device: Arc::new(device),
         queue: Arc::new(queue),
-        limits: Arc::new(limits),
+        limits,
     };
     *context_lock = Some(new_context.clone());
     Ok(new_context)
@@ -254,7 +352,7 @@ fn read_texture_data(
 pub fn run_gpu_processing(
     context: &GpuContext,
     image: &DynamicImage,
-    adjustments: Adjustments,
+    adjustments: AllAdjustments,
 ) -> Result<Vec<u8>, String> {
     let device = &context.device;
     let queue = &context.queue;
@@ -347,7 +445,7 @@ pub fn run_gpu_processing(
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.dispatch_workgroups((width + 7) / 8, (height + 7) / 8, 1);
         }
-        
+
         queue.submit(Some(encoder.finish()));
         return read_texture_data(device, queue, &output_texture, texture_size);
     }
@@ -365,12 +463,12 @@ pub fn run_gpu_processing(
             let y_start = tile_y * tile_size;
             let x_end = (x_start + tile_size).min(width);
             let y_end = (y_start + tile_size).min(height);
-            
+
             let tile_width = x_end - x_start;
             let tile_height = y_end - y_start;
 
             let mut tile_pixels = Vec::with_capacity((tile_width * tile_height * 4) as usize);
-            
+
             for y in y_start..y_end {
                 for x in x_start..x_end {
                     if x < width && y < height {
@@ -381,66 +479,66 @@ pub fn run_gpu_processing(
                     }
                 }
             }
-            
-            let texture_size = wgpu::Extent3d { 
-                width: tile_width, 
-                height: tile_height, 
-                depth_or_array_layers: 1 
+
+            let texture_size = wgpu::Extent3d {
+                width: tile_width,
+                height: tile_height,
+                depth_or_array_layers: 1
             };
 
             let input_texture = device.create_texture_with_data(
                 queue,
                 &wgpu::TextureDescriptor {
-                    label: Some("Input Tile Texture"), 
-                    size: texture_size, 
-                    mip_level_count: 1, 
+                    label: Some("Input Tile Texture"),
+                    size: texture_size,
+                    mip_level_count: 1,
                     sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2, 
+                    dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, 
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 },
-                TextureDataOrder::MipMajor, 
+                TextureDataOrder::MipMajor,
                 &tile_pixels,
             );
 
             let output_texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Output Tile Texture"), 
-                size: texture_size, 
-                mip_level_count: 1, 
+                label: Some("Output Tile Texture"),
+                size: texture_size,
+                mip_level_count: 1,
                 sample_count: 1,
-                dimension: wgpu::TextureDimension::D2, 
+                dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, 
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Tile Bind Group"), 
+                label: Some("Tile Bind Group"),
                 layout: &bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { 
-                        binding: 0, 
-                        resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) 
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default()))
                     },
-                    wgpu::BindGroupEntry { 
-                        binding: 1, 
-                        resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) 
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default()))
                     },
-                    wgpu::BindGroupEntry { 
-                        binding: 2, 
-                        resource: adjustments_buffer.as_entire_binding() 
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: adjustments_buffer.as_entire_binding()
                     },
                 ],
             });
 
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { 
-                label: Some("Tile Encoder") 
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Tile Encoder")
             });
             {
-                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { 
-                    label: None, 
-                    timestamp_writes: None 
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None
                 });
                 compute_pass.set_pipeline(&compute_pipeline);
                 compute_pass.set_bind_group(0, &bind_group, &[]);
@@ -458,7 +556,7 @@ pub fn run_gpu_processing(
                 if final_y < height && x_start < width {
                     let copy_width = tile_width.min(width - x_start);
                     let copy_bytes = (copy_width * 4) as usize;
-                    
+
                     let final_slice_start = final_row_offset;
                     let final_slice_end = final_slice_start + copy_bytes;
                     let tile_slice_start = tile_row_offset;
@@ -488,7 +586,7 @@ pub struct HistogramData {
 pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData, String> {
     let image = state.original_image.lock().unwrap().clone()
         .ok_or("No image loaded to generate histogram")?;
-    
+
     let preview = image.thumbnail(512, 512);
 
     let mut red = vec![0; 256];
@@ -500,7 +598,7 @@ pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData
         let r = pixel[0] as usize;
         let g = pixel[1] as usize;
         let b = pixel[2] as usize;
-        
+
         red[r] += 1;
         green[g] += 1;
         blue[b] += 1;
@@ -520,27 +618,34 @@ pub fn generate_processed_histogram(
     state: tauri::State<AppState>,
 ) -> Result<HistogramData, String> {
     let context = get_or_init_gpu_context(&state)?;
-    
-    let cache_lock = state.preview_cache.lock().unwrap();
-    let current_crop_value = &js_adjustments["crop"];
 
-    let cache_is_valid = match &*cache_lock {
-        Some(cache) => &cache.crop_value == current_crop_value,
-        None => false,
+    let (preview_base, scale) = {
+        let cache_lock = state.preview_cache.lock().unwrap();
+        let current_crop_value = &js_adjustments["crop"];
+
+        let cache_is_valid = match &*cache_lock {
+            Some(cache) => &cache.crop_value == current_crop_value,
+            None => false,
+        };
+
+        if cache_is_valid {
+            let cache = cache_lock.as_ref().unwrap();
+            let scale = cache.quick_preview_base.width() as f32 / cache.cropped_width as f32;
+            (cache.quick_preview_base.clone(), scale)
+        } else {
+            let original_image = state.original_image.lock().unwrap().clone()
+                .ok_or("No image loaded to generate histogram")?;
+            let cropped_image = apply_crop(original_image, current_crop_value);
+            let (cropped_w, _) = cropped_image.dimensions();
+            let thumbnail = cropped_image.thumbnail(640, 640);
+            let scale = thumbnail.width() as f32 / cropped_w as f32;
+            (thumbnail, scale)
+        }
     };
 
-    let preview_base = if cache_is_valid {
-        cache_lock.as_ref().unwrap().quick_preview_base.clone()
-    } else {
-        let original_image = state.original_image.lock().unwrap().clone()
-            .ok_or("No image loaded to generate histogram")?;
-        let cropped_image = apply_crop(original_image, current_crop_value);
-        cropped_image.thumbnail(800, 800)
-    };
-
-    let adjustments = get_adjustments_from_json(&js_adjustments);
+    let adjustments = get_all_adjustments_from_json(&js_adjustments, scale);
     let processed_pixels = run_gpu_processing(&context, &preview_base, adjustments)?;
-    
+
     let (width, height) = preview_base.dimensions();
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data for histogram")?;
@@ -554,7 +659,7 @@ pub fn generate_processed_histogram(
         let r = pixel[0] as usize;
         let g = pixel[1] as usize;
         let b = pixel[2] as usize;
-        
+
         red[r] += 1;
         green[g] += 1;
         blue[b] += 1;

@@ -15,7 +15,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use crate::image_processing::{
-    self, get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
+    self, get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
     ImageMetadata,
 };
 use crate::AppState;
@@ -123,8 +123,6 @@ fn generate_thumbnail_data(
     let original_path = Path::new(path_str);
     let sidecar_path = get_sidecar_path(path_str);
 
-    // Reverted to the standard, reliable image opening method.
-    // The performance gain will come from Rayon's parallelism.
     let mut img = image::open(original_path)?;
 
     if sidecar_path.exists() {
@@ -134,7 +132,8 @@ fn generate_thumbnail_data(
                     img = image_processing::apply_crop(img, &metadata.adjustments["crop"]);
 
                     if let Some(context) = gpu_context {
-                        let gpu_adjustments = get_adjustments_from_json(&metadata.adjustments);
+                        let gpu_adjustments =
+                            get_all_adjustments_from_json(&metadata.adjustments, 1.0);
                         if let Ok(processed_pixels) =
                             run_gpu_processing(context, &img, gpu_adjustments)
                         {
@@ -254,7 +253,6 @@ pub fn generate_thumbnails_progressive(
         let state = app_handle.state::<AppState>();
         let gpu_context = get_or_init_gpu_context(&state).ok();
 
-        // Use Rayon for parallel processing
         paths.par_iter().for_each(|path_str| {
             let result = (|| -> Option<String> {
                 let original_path = Path::new(path_str);
@@ -304,7 +302,6 @@ pub fn generate_thumbnails_progressive(
                 );
             }
 
-            // Atomically increment the counter and report progress
             let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
             let _ = app_handle_clone.emit(
                 "thumbnail-progress",

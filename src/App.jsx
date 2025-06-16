@@ -17,9 +17,14 @@ import CropPanel from './components/panel/right/CropPanel';
 import PresetsPanel from './components/panel/right/PresetsPanel';
 import AIPanel from './components/panel/right/AIPanel';
 import ExportPanel from './components/panel/right/ExportPanel';
+import MasksPanel from './components/panel/right/MasksPanel';
 import { ContextMenuProvider } from './context/ContextMenuContext';
 import ContextMenu from './components/ui/ContextMenu';
 
+export const INITIAL_MASK_ADJUSTMENTS = {
+  exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
+  saturation: 0, temperature: 0, tint: 0, vibrance: 0,
+};
 
 export const INITIAL_ADJUSTMENTS = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
@@ -36,6 +41,7 @@ export const INITIAL_ADJUSTMENTS = {
   },
   crop: null,
   aspectRatio: null,
+  masks: [],
 };
 
 
@@ -63,6 +69,7 @@ function App() {
   const [fullScreenUrl, setFullScreenUrl] = useState(null);
 
   const [activeRightPanel, setActiveRightPanel] = useState('adjustments');
+  const [activeMaskId, setActiveMaskId] = useState(null);
 
   const { thumbnails } = useThumbnails(imageList);
 
@@ -75,6 +82,7 @@ function App() {
     } else {
       setActiveRightPanel(panelId);
     }
+    setActiveMaskId(null);
   };
 
   useEffect(() => {
@@ -226,6 +234,7 @@ function App() {
     setFinalPreviewUrl(null);
     setAdjustments(INITIAL_ADJUSTMENTS);
     setShowOriginal(false);
+    setActiveMaskId(null);
 
     try {
       const loadImageResult = await invoke('load_image', { path });
@@ -247,12 +256,14 @@ function App() {
       });
 
       if (loadImageResult.metadata.adjustments && !loadImageResult.metadata.adjustments.is_null) {
+        const loadedAdjustments = loadImageResult.metadata.adjustments;
         setAdjustments(prev => ({
           ...INITIAL_ADJUSTMENTS,
           ...prev,
-          ...loadImageResult.metadata.adjustments,
-          hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadImageResult.metadata.adjustments.hsl },
-          curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadImageResult.metadata.adjustments.curves },
+          ...loadedAdjustments,
+          hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadedAdjustments.hsl },
+          curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadedAdjustments.curves },
+          masks: loadedAdjustments.masks || [],
         }));
       } else {
         setAdjustments(INITIAL_ADJUSTMENTS);
@@ -272,6 +283,7 @@ function App() {
     setFinalPreviewUrl(null);
     setQuickPreviewUrl(null);
     setHistogram(null);
+    setActiveMaskId(null);
   };
 
   const handleToggleFullScreen = async () => {
@@ -335,6 +347,8 @@ function App() {
                   adjustments={adjustments}
                   setAdjustments={setAdjustments}
                   thumbnails={thumbnails}
+                  activeMaskId={activeMaskId}
+                  onSelectMask={setActiveMaskId}
                 />
                 <Filmstrip
                   imageList={imageList}
@@ -365,6 +379,15 @@ function App() {
                       selectedImage={selectedImage} 
                       adjustments={adjustments}
                       setAdjustments={setAdjustments}
+                    />
+                  </div>
+                  <div className={activeRightPanel === 'masks' ? 'h-full' : 'hidden'}>
+                    <MasksPanel
+                      adjustments={adjustments}
+                      setAdjustments={setAdjustments}
+                      selectedImage={selectedImage}
+                      onSelectMask={setActiveMaskId}
+                      activeMaskId={activeMaskId}
                     />
                   </div>
                   <div className={activeRightPanel === 'presets' ? 'h-full' : 'hidden'}>

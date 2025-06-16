@@ -6,6 +6,7 @@ mod file_management;
 use std::io::Cursor;
 use std::sync::Mutex;
 use std::thread;
+use std::fs;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use tauri::{Manager, Emitter};
@@ -13,18 +14,20 @@ use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 use serde::{Serialize, Deserialize};
-use std::fs;
 
 use crate::image_processing::{
-    get_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext, ImageMetadata, apply_crop,
+    get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
+    ImageMetadata, apply_crop, AllAdjustments,
 };
 use crate::file_management::get_sidecar_path;
 
 #[derive(Clone)]
-struct PreviewCache {
+pub struct PreviewCache {
     crop_value: Value,
     quick_preview_base: DynamicImage,
     final_preview_base: DynamicImage,
+    cropped_width: u32,
+    cropped_height: u32,
 }
 
 pub struct AppState {
@@ -51,7 +54,7 @@ struct LoadImageResult {
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
     let mut buf = Cursor::new(Vec::new());
     image.write_to(&mut buf, image::ImageOutputFormat::Jpeg(quality))
-         .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
     let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
     Ok(format!("data:image/jpeg;base64,{}", base64_str))
 }
@@ -87,16 +90,14 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
 fn process_image_for_preview(
     context: &GpuContext,
     image: &DynamicImage,
-    js_adjustments: &Value,
+    all_adjustments: AllAdjustments,
     quality: u8,
 ) -> Result<String, String> {
-    let gpu_adjustments = get_adjustments_from_json(js_adjustments);
-    
-    let processed_pixels = run_gpu_processing(context, image, gpu_adjustments)?;
+    let processed_pixels = run_gpu_processing(context, image, all_adjustments)?;
     let (width, height) = image.dimensions();
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data")?;
-    
+
     encode_to_base64(&DynamicImage::ImageRgba8(img_buf), quality)
 }
 
@@ -108,7 +109,7 @@ fn apply_adjustments(
 ) -> Result<(), String> {
     let context = get_or_init_gpu_context(&state)?;
     let adjustments_clone = js_adjustments.clone();
-    
+
     let mut cache_lock = state.preview_cache.lock().unwrap();
     let current_crop_value = &js_adjustments["crop"];
 
@@ -117,30 +118,39 @@ fn apply_adjustments(
         None => false,
     };
 
-    let (quick_preview_base, final_preview_base) = if cache_is_valid {
+    let (quick_preview_base, final_preview_base, cropped_w, _cropped_h) = if cache_is_valid {
         let cache = cache_lock.as_ref().unwrap();
-        (cache.quick_preview_base.clone(), cache.final_preview_base.clone())
+        (cache.quick_preview_base.clone(), cache.final_preview_base.clone(), cache.cropped_width, cache.cropped_height)
     } else {
         let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
         
         let cropped_image = apply_crop(original_image, current_crop_value);
+        let (width, height) = cropped_image.dimensions();
         
-        let new_quick_base = cropped_image.thumbnail(800, 800);
+        let new_quick_base = cropped_image.thumbnail(1280, 1280);
         let new_final_base = cropped_image.thumbnail(2160, 2160);
 
         *cache_lock = Some(PreviewCache {
             crop_value: current_crop_value.clone(),
             quick_preview_base: new_quick_base.clone(),
             final_preview_base: new_final_base.clone(),
+            cropped_width: width,
+            cropped_height: height,
         });
-        (new_quick_base, new_final_base)
+        (new_quick_base, new_final_base, width, height)
     };
 
+    let scale_quick = quick_preview_base.width() as f32 / cropped_w as f32;
+    let scale_final = final_preview_base.width() as f32 / cropped_w as f32;
+
     thread::spawn(move || {
-        if let Ok(base64_str) = process_image_for_preview(&context, &quick_preview_base, &adjustments_clone, 65) {
+        let all_adjustments_quick = get_all_adjustments_from_json(&adjustments_clone, scale_quick);
+        if let Ok(base64_str) = process_image_for_preview(&context, &quick_preview_base, all_adjustments_quick, 65) {
             app_handle.emit("preview-update-quick", base64_str).unwrap();
         }
-        if let Ok(base64_str) = process_image_for_preview(&context, &final_preview_base, &adjustments_clone, 85) {
+        
+        let all_adjustments_final = get_all_adjustments_from_json(&adjustments_clone, scale_final);
+        if let Ok(base64_str) = process_image_for_preview(&context, &final_preview_base, all_adjustments_final, 85) {
             app_handle.emit("preview-update-final", base64_str).unwrap();
         }
     });
@@ -155,9 +165,10 @@ fn generate_fullscreen_preview(
 ) -> Result<String, String> {
     let context = get_or_init_gpu_context(&state)?;
     let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
-    
+
     let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
-    process_image_for_preview(&context, &cropped_image, &js_adjustments, 90)
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
+    process_image_for_preview(&context, &cropped_image, all_adjustments, 90)
 }
 
 #[tauri::command]
@@ -167,11 +178,11 @@ fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::S
         lock.clone().ok_or("No original image loaded")?
     };
     let context = get_or_init_gpu_context(&state)?;
-    
-    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
-    let gpu_adjustments = get_adjustments_from_json(&js_adjustments);
 
-    let processed_pixels = run_gpu_processing(&context, &cropped_image, gpu_adjustments)?;
+    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
+
+    let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
     let (width, height) = cropped_image.dimensions();
     let final_image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create final image buffer")?;
@@ -210,11 +221,11 @@ fn get_presets_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf,
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("presets");
-    
+
     if !presets_dir.exists() {
         fs::create_dir_all(&presets_dir).map_err(|e| e.to_string())?;
     }
-    
+
     Ok(presets_dir.join("presets.json"))
 }
 
@@ -242,35 +253,42 @@ fn generate_preset_preview(
 ) -> Result<String, String> {
     let context = get_or_init_gpu_context(&state)?;
 
-    let preview_base = {
+    let (preview_base, scale) = {
         let cache_lock = state.preview_cache.lock().unwrap();
         match &*cache_lock {
-            Some(cache) => cache.quick_preview_base.clone(),
+            Some(cache) => {
+                let scale = cache.quick_preview_base.width() as f32 / cache.cropped_width as f32;
+                (cache.quick_preview_base.clone(), scale)
+            },
             None => {
                 let original_image = state.original_image.lock().unwrap().clone()
                     .ok_or("No original image loaded for preset preview")?;
-                original_image.thumbnail(200, 200)
+                let (orig_w, _) = original_image.dimensions();
+                let thumbnail = original_image.thumbnail(200, 200);
+                let scale = thumbnail.width() as f32 / orig_w as f32;
+                (thumbnail, scale)
             }
         }
     };
 
-    process_image_for_preview(&context, &preview_base, &js_adjustments, 50)
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, scale);
+    process_image_for_preview(&context, &preview_base, all_adjustments, 50)
 }
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_fs::init()) 
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
             apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None)
-              .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+                .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
 
             #[cfg(target_os = "windows")]
             apply_acrylic(&window, Some((26, 29, 27, 60)))
-              .expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
+                .expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
 
             Ok(())
         })
@@ -289,7 +307,7 @@ fn main() {
             image_processing::generate_processed_histogram,
             file_management::list_images_in_dir,
             file_management::get_folder_tree,
-            file_management::generate_thumbnails, 
+            file_management::generate_thumbnails,
             file_management::generate_thumbnails_progressive,
             load_presets,
             save_presets,

@@ -1,9 +1,10 @@
-import { SlidersHorizontal, Info, Scaling, Sparkles, Bookmark, Save } from 'lucide-react';
+import { SlidersHorizontal, Info, Scaling, Sparkles, Bookmark, Save, Layers } from 'lucide-react';
 
 const panelOptions = [
   { id: 'metadata', icon: Info, title: 'Metadata' },
   { id: 'adjustments', icon: SlidersHorizontal, title: 'Adjustments' },
   { id: 'crop', icon: Scaling, title: 'Crop' },
+  { id: 'masks', icon: Layers, title: 'Masks' },
   { id: 'presets', icon: Bookmark, title: 'Presets' },
   { id: 'ai', icon: Sparkles, title: 'AI Tools' },
   { id: 'export', icon: Save, title: 'Export' },

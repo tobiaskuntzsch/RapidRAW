@@ -9,7 +9,7 @@ function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
     makeAspectCrop(
       {
         unit: '%',
-        width: 90,
+        width: 100,
       },
       aspect,
       mediaWidth,
@@ -79,7 +79,7 @@ function FullScreenViewer({ url, isLoading, onClose }) {
           <TransformWrapper
             key={url}
             initialScale={1}
-            minScale={0.7}
+            minScale={0.8}
             maxScale={10}
             limitToBounds={true}
             doubleClick={{ disabled: true }}

@@ -78,34 +78,49 @@ function App() {
   };
 
   useEffect(() => {
+    let isEffectActive = true;
+
     const listeners = [
-      listen('preview-update-quick', (event) => setQuickPreviewUrl(event.payload)),
+      listen('preview-update-quick', (event) => {
+        if (isEffectActive) setQuickPreviewUrl(event.payload);
+      }),
       listen('preview-update-final', (event) => {
-        setFinalPreviewUrl(event.payload);
-        setIsAdjusting(false);
+        if (isEffectActive) {
+          setFinalPreviewUrl(event.payload);
+          setIsAdjusting(false);
+        }
       }),
       listen('folder-tree-update', (event) => {
-        setFolderTree(event.payload);
-        setIsTreeLoading(false);
-        if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
-        if (loadingTimeout) clearTimeout(loadingTimeout);
+        if (isEffectActive) {
+          setFolderTree(event.payload);
+          setIsTreeLoading(false);
+          if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
+          if (loadingTimeout) clearTimeout(loadingTimeout);
+        }
       }),
       listen('folder-tree-error', (event) => {
-        setError(`Failed to load folder tree: ${event.payload}`);
-        setIsTreeLoading(false);
-        if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
-        if (loadingTimeout) clearTimeout(loadingTimeout);
+        if (isEffectActive) {
+          setError(`Failed to load folder tree: ${event.payload}`);
+          setIsTreeLoading(false);
+          if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
+          if (loadingTimeout) clearTimeout(loadingTimeout);
+        }
       }),
-      listen('export-failed', (event) => setError(`Export failed: ${event.payload}`)),
-      listen('export-successful', (event) => console.log(`Export successful to ${event.payload}`))
+      listen('export-failed', (event) => {
+        if (isEffectActive) setError(`Export failed: ${event.payload}`);
+      }),
+      listen('export-successful', (event) => {
+        if (isEffectActive) console.log(`Export successful to ${event.payload}`);
+      })
     ];
   
     return () => {
+      isEffectActive = false;
       listeners.forEach(unlistenPromise => unlistenPromise.then(unlisten => unlisten()));
       if (loaderTimeoutRef.current) clearTimeout(loaderTimeoutRef.current);
       if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
     };
-  }, [loadingTimeout]);
+  }, [loadingTimeout, selectedImage?.path]);
 
   const applyAdjustments = useCallback(debounce((currentAdjustments) => {
     if (!selectedImage?.isReady) return;

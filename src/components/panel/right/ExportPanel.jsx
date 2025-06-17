@@ -43,7 +43,7 @@ export default function ExportPanel({ selectedImage, adjustments }) {
   };
 
   return (
-    <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden h-full">
+    <div className="flex flex-col h-full">
       <div className="p-4 flex justify-between items-center flex-shrink-0">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">Export</h2>
       </div>

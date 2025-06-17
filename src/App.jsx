@@ -75,6 +75,9 @@ function App() {
   const [copiedAdjustments, setCopiedAdjustments] = useState(null);
   const [zoom, setZoom] = useState(1);
 
+  // --- NEW STATE: This tracks which panel should be in the DOM.
+  const [renderedRightPanel, setRenderedRightPanel] = useState(activeRightPanel);
+
   const { thumbnails } = useThumbnails(imageList);
 
   const loaderTimeoutRef = useRef(null);
@@ -88,6 +91,25 @@ function App() {
       setActiveRightPanel(panelId);
     }
     setActiveMaskId(null);
+  };
+
+  // --- NEW EFFECT: This keeps the rendered panel in sync with the active one.
+  // If a new panel is selected, we immediately render it.
+  // If the panel is closed (activeRightPanel is null), we do nothing here,
+  // leaving the old panel rendered for its closing animation.
+  useEffect(() => {
+    if (activeRightPanel !== null) {
+      setRenderedRightPanel(activeRightPanel);
+    }
+  }, [activeRightPanel]);
+
+  // --- NEW HANDLER: This will be called when the width transition finishes.
+  const handleTransitionEnd = () => {
+    // If the panel has finished closing (activeRightPanel is null),
+    // we can now safely remove the panel content from the DOM.
+    if (activeRightPanel === null) {
+      setRenderedRightPanel(null);
+    }
   };
 
   useEffect(() => {
@@ -433,57 +455,62 @@ function App() {
             />
           </div>
           
-          <div className={`flex items-start ${activeRightPanel ? 'gap-2' : ''}`}>
-            <div className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}>
-              <div className={activeRightPanel === 'adjustments' ? 'h-full' : 'hidden'}>
-                <Controls
-                  adjustments={adjustments}
-                  setAdjustments={setAdjustments}
-                  selectedImage={selectedImage}
-                  histogram={histogram}
-                />
-              </div>
-              <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
-                <MetadataPanel selectedImage={selectedImage} />
-              </div>
-              <div className={activeRightPanel === 'crop' ? 'h-full' : 'hidden'}>
-                <CropPanel 
-                  selectedImage={selectedImage} 
-                  adjustments={adjustments}
-                  setAdjustments={setAdjustments}
-                />
-              </div>
-              <div className={activeRightPanel === 'masks' ? 'h-full' : 'hidden'}>
-                <MasksPanel
-                  adjustments={adjustments}
-                  setAdjustments={setAdjustments}
-                  selectedImage={selectedImage}
-                  onSelectMask={setActiveMaskId}
-                  activeMaskId={activeMaskId}
-                />
-              </div>
-              <div className={activeRightPanel === 'presets' ? 'h-full' : 'hidden'}>
-                <PresetsPanel
-                  adjustments={adjustments}
-                  setAdjustments={setAdjustments}
-                  selectedImage={selectedImage}
-                  activePanel={activeRightPanel}
-                />
-              </div>
-              <div className={activeRightPanel === 'export' ? 'h-full' : 'hidden'}>
-                <ExportPanel
-                  selectedImage={selectedImage}
-                  adjustments={adjustments}
-                />
-              </div>
-              <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
-                <AIPanel selectedImage={selectedImage} />
+          <div className="flex bg-bg-secondary rounded-lg h-full">
+            {/* --- UPDATED CONTAINER: Added onTransitionEnd handler --- */}
+            <div 
+              className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}
+              onTransitionEnd={handleTransitionEnd}
+            >
+              {/* --- UPDATED RENDER LOGIC: Use renderedRightPanel to decide which panel is in the DOM --- */}
+              <div className="w-80 h-full">
+                {renderedRightPanel === 'adjustments' && (
+                  <Controls
+                    adjustments={adjustments}
+                    setAdjustments={setAdjustments}
+                    selectedImage={selectedImage}
+                    histogram={histogram}
+                  />
+                )}
+                {renderedRightPanel === 'metadata' && <MetadataPanel selectedImage={selectedImage} />}
+                {renderedRightPanel === 'crop' && (
+                  <CropPanel 
+                    selectedImage={selectedImage} 
+                    adjustments={adjustments}
+                    setAdjustments={setAdjustments}
+                  />
+                )}
+                {renderedRightPanel === 'masks' && (
+                  <MasksPanel
+                    adjustments={adjustments}
+                    setAdjustments={setAdjustments}
+                    selectedImage={selectedImage}
+                    onSelectMask={setActiveMaskId}
+                    activeMaskId={activeMaskId}
+                  />
+                )}
+                {renderedRightPanel === 'presets' && (
+                  <PresetsPanel
+                    adjustments={adjustments}
+                    setAdjustments={setAdjustments}
+                    selectedImage={selectedImage}
+                    activePanel={activeRightPanel}
+                  />
+                )}
+                {renderedRightPanel === 'export' && (
+                  <ExportPanel
+                    selectedImage={selectedImage}
+                    adjustments={adjustments}
+                  />
+                )}
+                {renderedRightPanel === 'ai' && <AIPanel selectedImage={selectedImage} />}
               </div>
             </div>
-            <RightPanelSwitcher 
-              activePanel={activeRightPanel}
-              onPanelSelect={handleRightPanelSelect}
-            />
+            <div className={`h-full border-l ${activeRightPanel ? 'border-surface' : 'border-transparent'} transition-colors`}>
+              <RightPanelSwitcher 
+                activePanel={activeRightPanel}
+                onPanelSelect={handleRightPanelSelect}
+              />
+            </div>
           </div>
         </div>
       );

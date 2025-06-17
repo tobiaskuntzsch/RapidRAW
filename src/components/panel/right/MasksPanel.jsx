@@ -62,7 +62,6 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
     }
     setAdjustments(prev => ({
       ...prev,
-      // Use the safe 'masks' variable here
       masks: (prev.masks || []).filter(mask => mask.id !== id),
     }));
   };
@@ -80,19 +79,17 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
   const updateMaskAdjustments = (maskId, newMaskAdjustments) => {
     setAdjustments(prev => ({
       ...prev,
-      // Use the safe 'masks' variable here
       masks: (prev.masks || []).map(mask =>
         mask.id === maskId ? { ...mask, adjustments: newMaskAdjustments } : mask
       ),
     }));
   };
 
-  // *** FIX: Use the safe 'masks' variable to find the editing mask ***
   const editingMask = masks.find(m => m.id === editingMaskId);
 
   if (editingMask) {
     return (
-      <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden h-full">
+      <div className="flex flex-col h-full">
         <div className="p-4 flex justify-between items-center flex-shrink-0">
           <button onClick={handleBackToList} className="p-2 rounded-full hover:bg-surface transition-colors">
             <ArrowLeft size={18} />
@@ -111,7 +108,7 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
   }
 
   return (
-    <div className="w-80 bg-bg-secondary flex flex-col rounded-lg overflow-hidden h-full">
+    <div className="flex flex-col h-full">
       <div className="p-4 flex justify-between items-center flex-shrink-0">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">Masks</h2>
         <div className="flex gap-2">
@@ -132,12 +129,10 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
         </div>
       </div>
       <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-2">
-        {/* *** FIX: Check length on the safe 'masks' variable *** */}
         {masks.length === 0 ? (
           <p className="text-sm text-center text-text-tertiary mt-4">No masks added yet. Click a button above to create one.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {/* *** FIX: Map over the safe 'masks' variable *** */}
             {masks.map((mask, index) => (
               <div
                 key={mask.id}

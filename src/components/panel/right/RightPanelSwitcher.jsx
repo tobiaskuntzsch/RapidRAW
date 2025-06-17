@@ -12,7 +12,7 @@ const panelOptions = [
 
 export default function RightPanelSwitcher({ activePanel, onPanelSelect }) {
   return (
-    <div className="flex flex-col bg-bg-secondary rounded-lg p-1 gap-1 h-full">
+    <div className="flex flex-col p-1 gap-1 h-full">
       {panelOptions.map(({ id, icon: Icon, title }) => (
         <button
           key={id}

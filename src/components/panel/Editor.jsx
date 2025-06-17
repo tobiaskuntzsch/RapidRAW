@@ -238,7 +238,7 @@ const ImageCanvas = memo(({
 
   if (isCropping) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-bg-secondary p-8">
+      <div className="w-full h-full flex items-center justify-center p-8">
         {selectedImage.originalUrl && (
           <div style={{ width: '70%', height: '70%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ReactCrop
@@ -267,53 +267,49 @@ const ImageCanvas = memo(({
   ];
 
   return (
-    <TransformWrapper key={selectedImage.path} minScale={0.7} limitToBounds={true} centerZoomedOut={true} doubleClick={{ disabled: true }} panning={{ disabled: isMaskHovered }}>
-      <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="relative" style={{ width: imageRenderSize.width, height: imageRenderSize.height }}>
-          {imageLayers.map(layer => layer.src && (
-            <img
-              key={layer.id}
-              src={layer.src}
-              alt={layer.id}
-              onLoad={layer.onLoad}
-              className={clsx(
-                "absolute top-0 left-0 w-full h-full object-contain",
-                layer.isFading && "transition-opacity duration-300"
-              )}
-              style={{
-                opacity: layer.visible ? (layer.isLoaded !== undefined ? (layer.isLoaded ? 1 : 0) : 1) : 0,
-                zIndex: layer.zIndex,
-                ...layer.style,
-              }}
-            />
-          ))}
-          {isMasking && imageRenderSize.width > 0 && (
-            <Stage
-              width={imageRenderSize.width}
-              height={imageRenderSize.height}
-              className="absolute top-0 left-0"
-              style={{ zIndex: 4 }}
-              onMouseDown={(e) => e.target === e.target.getStage() && onSelectMask(null)}
-            >
-              <Layer>
-                {adjustments.masks.map(mask => (
-                  <MaskOverlay
-                    key={mask.id}
-                    mask={mask}
-                    scale={imageRenderSize.scale}
-                    onUpdate={handleUpdateMask}
-                    isSelected={mask.id === activeMaskId}
-                    onSelect={() => onSelectMask(mask.id)}
-                    onMaskMouseEnter={() => setIsMaskHovered(true)}
-                    onMaskMouseLeave={() => setIsMaskHovered(false)}
-                  />
-                ))}
-              </Layer>
-            </Stage>
+    <div className="relative" style={{ width: imageRenderSize.width, height: imageRenderSize.height }}>
+      {imageLayers.map(layer => layer.src && (
+        <img
+          key={layer.id}
+          src={layer.src}
+          alt={layer.id}
+          onLoad={layer.onLoad}
+          className={clsx(
+            "absolute top-0 left-0 w-full h-full object-contain",
+            layer.isFading && "transition-opacity duration-300"
           )}
-        </div>
-      </TransformComponent>
-    </TransformWrapper>
+          style={{
+            opacity: layer.visible ? (layer.isLoaded !== undefined ? (layer.isLoaded ? 1 : 0) : 1) : 0,
+            zIndex: layer.zIndex,
+            ...layer.style,
+          }}
+        />
+      ))}
+      {isMasking && imageRenderSize.width > 0 && (
+        <Stage
+          width={imageRenderSize.width}
+          height={imageRenderSize.height}
+          className="absolute top-0 left-0"
+          style={{ zIndex: 4 }}
+          onMouseDown={(e) => e.target === e.target.getStage() && onSelectMask(null)}
+        >
+          <Layer>
+            {adjustments.masks.map(mask => (
+              <MaskOverlay
+                key={mask.id}
+                mask={mask}
+                scale={imageRenderSize.scale}
+                onUpdate={handleUpdateMask}
+                isSelected={mask.id === activeMaskId}
+                onSelect={() => onSelectMask(mask.id)}
+                onMaskMouseEnter={() => setIsMaskHovered(true)}
+                onMaskMouseLeave={() => setIsMaskHovered(false)}
+              />
+            ))}
+          </Layer>
+        </Stage>
+      )}
+    </div>
   );
 });
 
@@ -321,7 +317,7 @@ export default function Editor({
   selectedImage, quickPreviewUrl, finalPreviewUrl, showOriginal, setShowOriginal,
   isAdjusting, onBackToLibrary, isLoading, isFullScreen, isFullScreenLoading,
   fullScreenUrl, onToggleFullScreen, activeRightPanel, adjustments,
-  setAdjustments, thumbnails, activeMaskId, onSelectMask,
+  setAdjustments, thumbnails, activeMaskId, onSelectMask, transformWrapperRef, onZoomed
 }) {
   const [crop, setCrop] = useState();
   const [isMaskHovered, setIsMaskHovered] = useState(false);
@@ -407,7 +403,7 @@ export default function Editor({
       {isFullScreen && (
         <FullScreenViewer key={selectedImage.path} url={fullScreenUrl} isLoading={isFullScreenLoading} onClose={onToggleFullScreen} />
       )}
-      <div className="flex-1 bg-bg-secondary rounded-lg flex flex-col relative overflow-hidden p-2 gap-2">
+      <div className="flex-1 bg-bg-secondary rounded-lg flex flex-col relative overflow-hidden p-2 gap-2 min-h-0">
         <EditorToolbar
           onBackToLibrary={onBackToLibrary}
           selectedImage={selectedImage}
@@ -428,25 +424,39 @@ export default function Editor({
             </div>
           )}
 
-          <ImageCanvas
-            isCropping={isCropping}
-            crop={crop}
-            setCrop={setCrop}
-            handleCropComplete={handleCropComplete}
-            adjustments={adjustments}
-            selectedImage={selectedImage}
-            isMasking={isMasking}
-            imageRenderSize={imageRenderSize}
-            showOriginal={showOriginal}
-            thumbnailData={thumbnailData}
-            quickPreviewUrl={quickPreviewUrl}
-            finalPreviewUrl={finalPreviewUrl}
-            onSelectMask={onSelectMask}
-            activeMaskId={activeMaskId}
-            handleUpdateMask={handleUpdateMask}
-            isMaskHovered={isMaskHovered}
-            setIsMaskHovered={setIsMaskHovered}
-          />
+          <TransformWrapper
+            key={selectedImage.path}
+            ref={transformWrapperRef}
+            minScale={0.7}
+            maxScale={10}
+            limitToBounds={true}
+            centerZoomedOut={true}
+            doubleClick={{ disabled: true }}
+            panning={{ disabled: isMaskHovered }}
+            onTransformed={(_, state) => onZoomed(state)}
+          >
+            <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ImageCanvas
+                isCropping={isCropping}
+                crop={crop}
+                setCrop={setCrop}
+                handleCropComplete={handleCropComplete}
+                adjustments={adjustments}
+                selectedImage={selectedImage}
+                isMasking={isMasking}
+                imageRenderSize={imageRenderSize}
+                showOriginal={showOriginal}
+                thumbnailData={thumbnailData}
+                quickPreviewUrl={quickPreviewUrl}
+                finalPreviewUrl={finalPreviewUrl}
+                onSelectMask={onSelectMask}
+                activeMaskId={activeMaskId}
+                handleUpdateMask={handleUpdateMask}
+                isMaskHovered={isMaskHovered}
+                setIsMaskHovered={setIsMaskHovered}
+              />
+            </TransformComponent>
+          </TransformWrapper>
         </div>
       </div>
     </>

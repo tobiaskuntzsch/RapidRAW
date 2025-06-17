@@ -9,7 +9,6 @@ import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
 import Editor from './components/panel/Editor';
 import Controls from './components/panel/right/Controls';
-import Filmstrip from './components/panel/Filmstrip';
 import { useThumbnails } from './hooks/useThumbnails';
 import RightPanelSwitcher from './components/panel/right/RightPanelSwitcher';
 import MetadataPanel from './components/panel/right/MetadataPanel';
@@ -18,6 +17,7 @@ import PresetsPanel from './components/panel/right/PresetsPanel';
 import AIPanel from './components/panel/right/AIPanel';
 import ExportPanel from './components/panel/right/ExportPanel';
 import MasksPanel from './components/panel/right/MasksPanel';
+import BottomBar from './components/panel/BottomBar';
 import { ContextMenuProvider } from './context/ContextMenuContext';
 import ContextMenu from './components/ui/ContextMenu';
 
@@ -27,6 +27,7 @@ export const INITIAL_MASK_ADJUSTMENTS = {
 };
 
 export const INITIAL_ADJUSTMENTS = {
+  rating: 0,
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
   saturation: 0, temperature: 0, tint: 0, vibrance: 0,
   hsl: {
@@ -71,11 +72,14 @@ function App() {
 
   const [activeRightPanel, setActiveRightPanel] = useState('adjustments');
   const [activeMaskId, setActiveMaskId] = useState(null);
+  const [copiedAdjustments, setCopiedAdjustments] = useState(null);
+  const [zoom, setZoom] = useState(1);
 
   const { thumbnails } = useThumbnails(imageList);
 
   const loaderTimeoutRef = useRef(null);
   const folderTreeTimeoutRef = useRef(null);
+  const transformWrapperRef = useRef(null);
 
   const handleRightPanelSelect = (panelId) => {
     if (panelId === activeRightPanel) {
@@ -266,6 +270,10 @@ function App() {
     setAdjustments(INITIAL_ADJUSTMENTS);
     setShowOriginal(false);
     setActiveMaskId(null);
+    if (transformWrapperRef.current) {
+      transformWrapperRef.current.resetTransform(0);
+    }
+    setZoom(1);
 
     try {
       const loadImageResult = await invoke('load_image', { path });
@@ -336,6 +344,40 @@ function App() {
     }
   };
 
+  const handleCopyAdjustments = () => {
+    const { crop, masks, aspectRatio, ...rest } = adjustments;
+    setCopiedAdjustments(rest);
+  };
+
+  const handlePasteAdjustments = () => {
+    if (copiedAdjustments) {
+      setAdjustments(prev => ({
+        ...prev,
+        ...copiedAdjustments,
+      }));
+    }
+  };
+
+  const handleRate = useCallback((newRating) => {
+    setAdjustments(prev => ({ ...prev, rating: newRating }));
+  }, []);
+
+  const handleZoomChange = useCallback((newZoom) => {
+    if (transformWrapperRef.current) {
+      const { state, setTransform } = transformWrapperRef.current;
+      const { positionX, positionY, scale } = state;
+      const container = transformWrapperRef.current.instance.wrapperComponent;
+      if (!container) return;
+      
+      const { clientWidth, clientHeight } = container;
+      const centerX = clientWidth / 2;
+      const centerY = clientHeight / 2;
+      const newPositionX = centerX - (centerX - positionX) * (newZoom / scale);
+      const newPositionY = centerY - (centerY - positionY) * (newZoom / scale);
+      setTransform(newPositionX, newPositionY, newZoom, 100, 'easeOut');
+    }
+  }, []);
+
   const renderContent = () => {
     if (selectedImage) {
       return (
@@ -348,7 +390,7 @@ function App() {
             isVisible={isFolderTreeVisible}
             setIsVisible={setIsFolderTreeVisible}
           />
-          <div className="flex-1 flex flex-col relative min-w-0 gap-2">
+          <div className="flex-1 flex flex-col min-w-0 gap-2">
             <Editor
               selectedImage={selectedImage}
               quickPreviewUrl={quickPreviewUrl}
@@ -368,15 +410,26 @@ function App() {
               thumbnails={thumbnails}
               activeMaskId={activeMaskId}
               onSelectMask={setActiveMaskId}
+              transformWrapperRef={transformWrapperRef}
+              onZoomed={(transformState) => setZoom(transformState.scale)}
             />
-            <Filmstrip
+            <BottomBar
+              rating={adjustments.rating || 0}
+              onRate={handleRate}
+              onCopy={handleCopyAdjustments}
+              onPaste={handlePasteAdjustments}
+              isPasteDisabled={copiedAdjustments === null}
+              zoom={zoom}
+              onZoomChange={handleZoomChange}
+              minZoom={0.7}
+              maxZoom={10}
               imageList={imageList}
               selectedImage={selectedImage}
               onImageSelect={handleImageSelect}
-              isVisible={isFilmstripVisible}
-              setIsVisible={setIsFilmstripVisible}
-              isLoading={isViewLoading}
               thumbnails={thumbnails}
+              isFilmstripVisible={isFilmstripVisible}
+              setIsFilmstripVisible={setIsFilmstripVisible}
+              isLoading={isViewLoading}
             />
           </div>
           

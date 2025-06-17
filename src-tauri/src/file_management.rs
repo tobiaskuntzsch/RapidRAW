@@ -122,39 +122,45 @@ fn generate_thumbnail_data(
 ) -> Result<Vec<u8>> {
     let original_path = Path::new(path_str);
     let sidecar_path = get_sidecar_path(path_str);
+    let img = image::open(original_path)?;
 
-    let mut img = image::open(original_path)?;
+    let mut image_to_process = img;
 
-    if sidecar_path.exists() {
-        if let Ok(file_content) = fs::read_to_string(sidecar_path) {
-            if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
-                if !metadata.adjustments.is_null() {
-                    img = image_processing::apply_crop(img, &metadata.adjustments["crop"]);
+    if let (Some(context), Ok(file_content)) = (gpu_context, fs::read_to_string(sidecar_path)) {
+        if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
+            if !metadata.adjustments.is_null() {
+                let cropped_image =
+                    image_processing::apply_crop(image_to_process, &metadata.adjustments["crop"]);
+                let (cropped_w, _cropped_h) = cropped_image.dimensions();
 
-                    if let Some(context) = gpu_context {
-                        let gpu_adjustments =
-                            get_all_adjustments_from_json(&metadata.adjustments, 1.0);
-                        if let Ok(processed_pixels) =
-                            run_gpu_processing(context, &img, gpu_adjustments)
-                        {
-                            let (width, height) = img.dimensions();
-                            if let Some(img_buf) =
-                                ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
-                                    width,
-                                    height,
-                                    processed_pixels,
-                                )
-                            {
-                                img = DynamicImage::ImageRgba8(img_buf);
-                            }
-                        }
+                const PROCESSING_PREVIEW_DIM: u32 = 1280;
+                let processing_target_dim = cropped_w.min(PROCESSING_PREVIEW_DIM);
+                let processing_base =
+                    cropped_image.thumbnail(processing_target_dim, processing_target_dim);
+
+                let scale = (processing_base.width() as f32 / cropped_w as f32).min(1.0);
+                let gpu_adjustments =
+                    get_all_adjustments_from_json(&metadata.adjustments, scale);
+
+                if let Ok(processed_pixels) =
+                    run_gpu_processing(context, &processing_base, gpu_adjustments)
+                {
+                    let (width, height) = processing_base.dimensions();
+                    if let Some(img_buf) =
+                        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
+                    {
+                        image_to_process = DynamicImage::ImageRgba8(img_buf);
+                    } else {
+                        image_to_process = cropped_image;
                     }
+                } else {
+                    image_to_process = cropped_image;
                 }
             }
         }
     }
 
-    let thumbnail = img.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_WIDTH);
+    let thumbnail = image_to_process.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_WIDTH);
     let mut buf = Cursor::new(Vec::new());
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, 75);
     encoder.encode_image(&thumbnail.to_rgba8())?;

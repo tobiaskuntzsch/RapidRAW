@@ -70,6 +70,10 @@ struct AllAdjustments {
     crop_x: u32,
     crop_y: u32,
     preview_scale: f32,
+    tile_offset_x: u32,
+    tile_offset_y: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
@@ -241,8 +245,21 @@ fn get_radial_mask_influence(pixel_coords: vec2<f32>, mask: Mask) -> f32 {
 }
 
 fn get_linear_mask_influence(pixel_coords: vec2<f32>, mask: Mask) -> f32 {
-    let dist = abs(pixel_coords.x - mask.center_x) / max(mask.radius_x, 0.001);
-    return 1.0 - smoothstep(1.0 - mask.feather, 1.0, dist);
+    let start_point = vec2<f32>(mask.start_x, mask.start_y);
+    let end_point = vec2<f32>(mask.end_x, mask.end_y);
+    
+    let gradient_vec = end_point - start_point;
+    let len_sq = dot(gradient_vec, gradient_vec);
+
+    if (len_sq < 0.001) {
+        return 0.0;
+    }
+    
+    let pixel_vec = pixel_coords - start_point;
+    let t = dot(pixel_vec, gradient_vec) / len_sq;
+
+    let half_feather = mask.feather * 0.5;
+    return smoothstep(0.0 - half_feather, 0.0 + half_feather, t) - smoothstep(1.0 - half_feather, 1.0 + half_feather, t);
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -251,13 +268,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let dims = textureDimensions(input_texture);
     if (id.x >= dims.x || id.y >= dims.y) { return; }
 
-    var original_pixel_coords: vec2<f32>;
-    if (adjustments.preview_scale < 0.999) {
-        let inv_scale = 1.0 / adjustments.preview_scale;
-        original_pixel_coords = (vec2<f32>(f32(id.x), f32(id.y)) * inv_scale) + vec2<f32>(f32(adjustments.crop_x), f32(adjustments.crop_y));
-    } else {
-        original_pixel_coords = vec2<f32>(f32(id.x + adjustments.crop_x), f32(id.y + adjustments.crop_y));
-    }
+    let local_coords = vec2<f32>(f32(id.x), f32(id.y));
+    let tile_offset = vec2<f32>(f32(adjustments.tile_offset_x), f32(adjustments.tile_offset_y));
+    let crop_offset = vec2<f32>(f32(adjustments.crop_x), f32(adjustments.crop_y));
+    let inv_scale = 1.0 / max(adjustments.preview_scale, 0.001);
+
+    let preview_coords = local_coords + tile_offset;
+    let cropped_coords = preview_coords * inv_scale;
+    let original_pixel_coords = cropped_coords + crop_offset;
 
     var color = textureLoad(input_texture, pixel_coords_i, 0);
     var processed_rgb = color.rgb;

@@ -138,6 +138,10 @@ pub struct AllAdjustments {
     pub crop_x: u32,
     pub crop_y: u32,
     pub preview_scale: f32,
+    pub tile_offset_x: u32,
+    pub tile_offset_y: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
@@ -210,6 +214,10 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
     let mut masks = [Mask::default(); 16];
     let mut mask_count = 0;
 
+    let crop_data: Option<Crop> = js_adjustments.get("crop").and_then(|c| serde_json::from_value(c.clone()).ok());
+    let (crop_x, crop_y) = crop_data.map_or((0.0, 0.0), |c| (c.x, c.y));
+
+
     if let Some(js_masks) = js_adjustments.get("masks").and_then(|m| m.as_array()) {
         for (i, js_mask) in js_masks.iter().enumerate().take(16) {
             let adj = &js_mask["adjustments"];
@@ -251,16 +259,17 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
         }
     }
 
-    let crop_data: Option<Crop> = js_adjustments.get("crop").and_then(|c| serde_json::from_value(c.clone()).ok());
-    let (crop_x, crop_y) = crop_data.map_or((0, 0), |c| (c.x as u32, c.y as u32));
-
     AllAdjustments {
         global,
         masks,
         mask_count,
-        crop_x,
-        crop_y,
+        crop_x: crop_x.round() as u32,
+        crop_y: crop_y.round() as u32,
         preview_scale,
+        tile_offset_x: 0,
+        tile_offset_y: 0,
+        _pad1: 0,
+        _pad2: 0,
     }
 }
 
@@ -359,12 +368,6 @@ pub fn run_gpu_processing(
     let (width, height) = image.dimensions();
     let max_dim = context.limits.max_texture_dimension_2d;
 
-    let adjustments_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Adjustments Buffer"),
-        contents: bytemuck::bytes_of(&adjustments),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-
     let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Image Processing Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -413,6 +416,12 @@ pub fn run_gpu_processing(
         let img_rgba = image.to_rgba8();
         let texture_size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
 
+        let adjustments_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Adjustments Buffer"),
+            contents: bytemuck::bytes_of(&adjustments),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
         let input_texture = device.create_texture_with_data(
             queue,
             &wgpu::TextureDescriptor {
@@ -457,6 +466,8 @@ pub fn run_gpu_processing(
     let tiles_x = (width + tile_size - 1) / tile_size;
     let tiles_y = (height + tile_size - 1) / tile_size;
 
+    let raw_buffer = img_rgba.as_raw();
+
     for tile_y in 0..tiles_y {
         for tile_x in 0..tiles_x {
             let x_start = tile_x * tile_size;
@@ -470,76 +481,51 @@ pub fn run_gpu_processing(
             let mut tile_pixels = Vec::with_capacity((tile_width * tile_height * 4) as usize);
 
             for y in y_start..y_end {
-                for x in x_start..x_end {
-                    if x < width && y < height {
-                        let pixel = img_rgba.get_pixel(x, y);
-                        tile_pixels.extend_from_slice(&pixel.0);
-                    } else {
-                        tile_pixels.extend_from_slice(&[0, 0, 0, 255]);
-                    }
-                }
+                let pixel_row_start = (y * width + x_start) as usize * 4;
+                let pixel_row_end = pixel_row_start + (tile_width as usize * 4);
+                tile_pixels.extend_from_slice(&raw_buffer[pixel_row_start..pixel_row_end]);
             }
 
-            let texture_size = wgpu::Extent3d {
-                width: tile_width,
-                height: tile_height,
-                depth_or_array_layers: 1
-            };
+            let texture_size = wgpu::Extent3d { width: tile_width, height: tile_height, depth_or_array_layers: 1 };
+
+            let mut tile_adjustments = adjustments;
+            tile_adjustments.tile_offset_x = x_start;
+            tile_adjustments.tile_offset_y = y_start;
+
+            let adjustments_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Tile Adjustments Buffer"),
+                contents: bytemuck::bytes_of(&tile_adjustments),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
 
             let input_texture = device.create_texture_with_data(
                 queue,
                 &wgpu::TextureDescriptor {
-                    label: Some("Input Tile Texture"),
-                    size: texture_size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
+                    label: Some("Input Tile Texture"), size: texture_size, mip_level_count: 1, sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
                 },
-                TextureDataOrder::MipMajor,
-                &tile_pixels,
+                TextureDataOrder::MipMajor, &tile_pixels,
             );
 
             let output_texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Output Tile Texture"),
-                size: texture_size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
+                label: Some("Output Tile Texture"), size: texture_size, mip_level_count: 1, sample_count: 1,
+                dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
             });
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Tile Bind Group"),
-                layout: &bind_group_layout,
+                label: Some("Tile Bind Group"), layout: &bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default()))
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default()))
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: adjustments_buffer.as_entire_binding()
-                    },
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) },
+                    wgpu::BindGroupEntry { binding: 2, resource: adjustments_buffer.as_entire_binding() },
                 ],
             });
 
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Tile Encoder")
-            });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Tile Encoder") });
             {
-                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: None
-                });
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
                 compute_pass.set_pipeline(&compute_pipeline);
                 compute_pass.set_bind_group(0, &bind_group, &[]);
                 compute_pass.dispatch_workgroups((tile_width + 7) / 8, (tile_height + 7) / 8, 1);
@@ -552,21 +538,10 @@ pub fn run_gpu_processing(
                 let final_y = y_start + row;
                 let final_row_offset = (final_y * width + x_start) as usize * 4;
                 let tile_row_offset = (row * tile_width) as usize * 4;
+                let copy_bytes = (tile_width * 4) as usize;
 
-                if final_y < height && x_start < width {
-                    let copy_width = tile_width.min(width - x_start);
-                    let copy_bytes = (copy_width * 4) as usize;
-
-                    let final_slice_start = final_row_offset;
-                    let final_slice_end = final_slice_start + copy_bytes;
-                    let tile_slice_start = tile_row_offset;
-                    let tile_slice_end = tile_slice_start + copy_bytes;
-
-                    if final_slice_end <= final_pixels.len() && tile_slice_end <= processed_tile_data.len() {
-                        final_pixels[final_slice_start..final_slice_end]
-                            .copy_from_slice(&processed_tile_data[tile_slice_start..tile_slice_end]);
-                    }
-                }
+                final_pixels[final_row_offset..final_row_offset + copy_bytes]
+                    .copy_from_slice(&processed_tile_data[tile_row_offset..tile_row_offset + copy_bytes]);
             }
         }
     }
@@ -619,28 +594,19 @@ pub fn generate_processed_histogram(
 ) -> Result<HistogramData, String> {
     let context = get_or_init_gpu_context(&state)?;
 
-    let (preview_base, scale) = {
-        let cache_lock = state.preview_cache.lock().unwrap();
-        let current_crop_value = &js_adjustments["crop"];
+    let original_image = state.original_image.lock().unwrap().clone()
+        .ok_or("No image loaded to generate histogram")?;
 
-        let cache_is_valid = match &*cache_lock {
-            Some(cache) => &cache.crop_value == current_crop_value,
-            None => false,
-        };
+    let current_crop_value = &js_adjustments["crop"];
+    let cropped_image = apply_crop(original_image, current_crop_value);
+    let (cropped_w, _cropped_h) = cropped_image.dimensions();
+    
+    let preview_base = cropped_image.thumbnail(640, 640);
 
-        if cache_is_valid {
-            let cache = cache_lock.as_ref().unwrap();
-            let scale = cache.quick_preview_base.width() as f32 / cache.cropped_width as f32;
-            (cache.quick_preview_base.clone(), scale)
-        } else {
-            let original_image = state.original_image.lock().unwrap().clone()
-                .ok_or("No image loaded to generate histogram")?;
-            let cropped_image = apply_crop(original_image, current_crop_value);
-            let (cropped_w, _) = cropped_image.dimensions();
-            let thumbnail = cropped_image.thumbnail(640, 640);
-            let scale = thumbnail.width() as f32 / cropped_w as f32;
-            (thumbnail, scale)
-        }
+    let scale = if cropped_w > 0 {
+        (preview_base.width() as f32 / cropped_w as f32).min(1.0)
+    } else {
+        1.0
     };
 
     let adjustments = get_all_adjustments_from_json(&js_adjustments, scale);

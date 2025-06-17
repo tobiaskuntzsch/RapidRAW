@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Folder, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { Folder, Image as ImageIcon, RefreshCw, Settings, Home } from 'lucide-react';
 import Button from '../ui/Button';
 import FolderTree from '../panel/FolderTree';
+import SettingsPanel from './SettingsPanel';
 
 function Thumbnail({ path, data, onDoubleClick }) {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -42,8 +43,6 @@ function Thumbnail({ path, data, onDoubleClick }) {
   );
 }
 
-// ... the rest of the MainLibrary component remains unchanged ...
-
 export default function MainLibrary({
   imageList,
   onImageSelect,
@@ -53,19 +52,91 @@ export default function MainLibrary({
   onFolderSelect,
   onOpenFolder,
   isTreeLoading,
-  thumbnails
+  thumbnails,
+  appSettings,
+  onContinueSession,
+  onGoHome,
 }) {
   const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
 
   if (!rootPath) {
+    if (!appSettings) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center h-full rounded-lg bg-bg-primary p-8 text-center">
+          <ImageIcon size={80} className="text-accent opacity-20 mb-6 animate-pulse" />
+          <h1 className="text-3xl font-bold text-primary mb-2">RapidRAW</h1>
+          <p className="text-text-secondary mb-8">Loading settings...</p>
+        </div>
+      );
+    }
+
+    const hasLastPath = !!appSettings.last_root_path;
+
     return (
-      <div className="flex-1 flex flex-col items-center justify-center h-full rounded-lg bg-bg-primary p-8 text-center">
-        <ImageIcon size={80} className="text-accent opacity-20 mb-6" />
-        <h1 className="text-3xl font-bold text-primary mb-2">RapidRAW</h1>
-        <p className="text-text-secondary mb-8">Open a folder to start editing your images.</p>
-        <Button onClick={onOpenFolder} size="lg" className="rounded-md">
-          <Folder size={24} /> Open Folder
-        </Button>
+      <div className="flex-1 flex h-full rounded-lg bg-bg-secondary overflow-hidden shadow-lg">
+        {/* Left side: Image - hidden on small screens */}
+        <div className="w-1/2 hidden md:block relative">
+          <img
+            src="/splash.jpg"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-bg-secondary via-bg-secondary/50 to-transparent"></div>
+        </div>
+
+        {/* Right side: Content - Conditionally renders Welcome or Settings */}
+        <div className="w-full md:w-1/2 flex flex-col p-8 lg:p-16 relative">
+          {showSettings ? (
+            <SettingsPanel
+              onBack={() => setShowSettings(false)}
+              appSettings={appSettings}
+            />
+          ) : (
+            <>
+              <div className="my-auto text-left">
+                <h1 className="text-5xl font-bold text-primary text-shadow-shiny mb-4">
+                  RapidRAW
+                </h1>
+                <p className="text-text-secondary mb-10 max-w-md">
+                  {hasLastPath ? (
+                    <>
+                      Welcome back!<br />
+                      Continue where you left off or start a new session.
+                    </>
+                  ) : (
+                    "A blazingly fast, GPU-accelerated RAW image editor. Open a folder to begin."
+                  )}
+                </p>
+                <div className="flex flex-col w-full max-w-xs gap-4">
+                  {hasLastPath && (
+                    <Button onClick={onContinueSession} size="lg" className="rounded-md h-11 w-full flex justify-start items-center">
+                      <RefreshCw size={20} className="mr-2" /> Continue Session
+                    </Button>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={onOpenFolder}
+                      size="lg"
+                      className={`rounded-md flex-grow flex justify-start items-center h-11 ${hasLastPath ? 'bg-surface text-text-primary shadow-none' : ''}`}
+                    >
+                      <Folder size={20} className="mr-2" />
+                      {hasLastPath ? "Change Folder" : "Open Folder"}
+                    </Button>
+                    <Button 
+                      onClick={() => setShowSettings(true)} 
+                      size="lg" 
+                      variant="ghost" 
+                      className="px-3 bg-surface text-text-primary shadow-none h-11"
+                    >
+                      <Settings size={20} />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <p className="absolute bottom-8 left-8 lg:left-16 text-xs text-text-secondary">Version 1.0.0 - Image by Mahdi Bafande</p>
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -81,14 +152,19 @@ export default function MainLibrary({
         setIsVisible={setIsFolderTreeVisible}
       />
       <div className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden">
-        <header className="p-4 flex-shrink-0 flex justify-between items-center">
+        <header className="p-4 flex-shrink-0 flex justify-between items-center border-b border-border-color">
           <div>
-            <h2 className="text-3xl font-bold text-primary text-shadow-shiny">Library</h2>
+            <h2 className="text-2xl font-bold text-primary">Library</h2>
             <p className="text-sm text-text-secondary truncate">{currentFolderPath}</p>
           </div>
-          <Button onClick={onOpenFolder} className="rounded-md text-black hover:text-black">
-            <RefreshCw size={16} /> Change Root Folder
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={onOpenFolder} className="bg-surface text-text-primary shadow-none aspect-square">
+              <Folder size={18} />
+            </Button>
+            <Button onClick={onGoHome} className="bg-surface text-text-primary shadow-none aspect-square">
+              <Home size={18} />
+            </Button>
+          </div>
         </header>
         {imageList.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-text-secondary">

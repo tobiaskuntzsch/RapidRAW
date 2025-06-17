@@ -24,10 +24,7 @@ use crate::file_management::get_sidecar_path;
 #[derive(Clone)]
 pub struct PreviewCache {
     crop_value: Value,
-    quick_preview_base: DynamicImage,
-    final_preview_base: DynamicImage,
-    cropped_width: u32,
-    cropped_height: u32,
+    cropped_image: DynamicImage,
 }
 
 pub struct AppState {
@@ -41,6 +38,11 @@ struct Preset {
     id: String,
     name: String,
     adjustments: Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+struct AppSettings {
+    last_root_path: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -101,6 +103,7 @@ fn process_image_for_preview(
     encode_to_base64(&DynamicImage::ImageRgba8(img_buf), quality)
 }
 
+
 #[tauri::command]
 fn apply_adjustments(
     js_adjustments: serde_json::Value,
@@ -118,40 +121,44 @@ fn apply_adjustments(
         None => false,
     };
 
-    let (quick_preview_base, final_preview_base, cropped_w, _cropped_h) = if cache_is_valid {
-        let cache = cache_lock.as_ref().unwrap();
-        (cache.quick_preview_base.clone(), cache.final_preview_base.clone(), cache.cropped_width, cache.cropped_height)
+    let cropped_image_base = if cache_is_valid {
+        cache_lock.as_ref().unwrap().cropped_image.clone()
     } else {
         let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
         
-        let cropped_image = apply_crop(original_image, current_crop_value);
-        let (width, height) = cropped_image.dimensions();
-        
-        let new_quick_base = cropped_image.thumbnail(1280, 1280);
-        let new_final_base = cropped_image.thumbnail(2160, 2160);
+        let new_cropped_image = apply_crop(original_image, current_crop_value);
 
         *cache_lock = Some(PreviewCache {
             crop_value: current_crop_value.clone(),
-            quick_preview_base: new_quick_base.clone(),
-            final_preview_base: new_final_base.clone(),
-            cropped_width: width,
-            cropped_height: height,
+            cropped_image: new_cropped_image.clone(),
         });
-        (new_quick_base, new_final_base, width, height)
+        new_cropped_image
     };
 
-    let scale_quick = quick_preview_base.width() as f32 / cropped_w as f32;
-    let scale_final = final_preview_base.width() as f32 / cropped_w as f32;
-
     thread::spawn(move || {
-        let all_adjustments_quick = get_all_adjustments_from_json(&adjustments_clone, scale_quick);
-        if let Ok(base64_str) = process_image_for_preview(&context, &quick_preview_base, all_adjustments_quick, 65) {
-            app_handle.emit("preview-update-quick", base64_str).unwrap();
-        }
+        let (cropped_w, _cropped_h) = cropped_image_base.dimensions();
+
+        const QUICK_PREVIEW_DIM: u32 = 1280;
+        const FINAL_PREVIEW_DIM: u32 = 2160;
+
+        let quick_target_dim = cropped_w.min(QUICK_PREVIEW_DIM);
+        let quick_preview_base = cropped_image_base.thumbnail(quick_target_dim, quick_target_dim);
         
-        let all_adjustments_final = get_all_adjustments_from_json(&adjustments_clone, scale_final);
-        if let Ok(base64_str) = process_image_for_preview(&context, &final_preview_base, all_adjustments_final, 85) {
-            app_handle.emit("preview-update-final", base64_str).unwrap();
+        let quick_scale = (quick_preview_base.width() as f32 / cropped_w as f32).min(1.0);
+        let quick_adjustments = get_all_adjustments_from_json(&adjustments_clone, quick_scale);
+
+        if let Ok(base64_str) = process_image_for_preview(&context, &quick_preview_base, quick_adjustments, 65) {
+            let _ = app_handle.emit("preview-update-quick", base64_str);
+        }
+
+        let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
+        let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
+        
+        let final_scale = (final_preview_base.width() as f32 / cropped_w as f32).min(1.0);
+        let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
+
+        if let Ok(base64_str) = process_image_for_preview(&context, &final_preview_base, final_adjustments, 85) {
+            let _ = app_handle.emit("preview-update-final", base64_str);
         }
     });
 
@@ -168,7 +175,13 @@ fn generate_fullscreen_preview(
 
     let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
-    process_image_for_preview(&context, &cropped_image, all_adjustments, 90)
+
+    let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
+    let (width, height) = cropped_image.dimensions();
+    let final_image_buffer = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
+        .ok_or("Failed to create final image buffer for fullscreen preview")?;
+    
+    encode_to_base64(&DynamicImage::ImageRgba8(final_image_buffer), 95)
 }
 
 #[tauri::command]
@@ -246,6 +259,36 @@ fn save_presets(presets: Vec<Preset>, app_handle: tauri::AppHandle) -> Result<()
     fs::write(path, json_string).map_err(|e| e.to_string())
 }
 
+fn get_settings_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let settings_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+
+    if !settings_dir.exists() {
+        fs::create_dir_all(&settings_dir).map_err(|e| e.to_string())?;
+    }
+
+    Ok(settings_dir.join("settings.json"))
+}
+
+#[tauri::command]
+fn load_settings(app_handle: tauri::AppHandle) -> Result<AppSettings, String> {
+    let path = get_settings_path(&app_handle)?;
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_settings(settings: AppSettings, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let path = get_settings_path(&app_handle)?;
+    let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(path, json_string).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn generate_preset_preview(
     js_adjustments: serde_json::Value,
@@ -253,26 +296,29 @@ fn generate_preset_preview(
 ) -> Result<String, String> {
     let context = get_or_init_gpu_context(&state)?;
 
-    let (preview_base, scale) = {
-        let cache_lock = state.preview_cache.lock().unwrap();
-        match &*cache_lock {
-            Some(cache) => {
-                let scale = cache.quick_preview_base.width() as f32 / cache.cropped_width as f32;
-                (cache.quick_preview_base.clone(), scale)
-            },
-            None => {
-                let original_image = state.original_image.lock().unwrap().clone()
-                    .ok_or("No original image loaded for preset preview")?;
-                let (orig_w, _) = original_image.dimensions();
-                let thumbnail = original_image.thumbnail(200, 200);
-                let scale = thumbnail.width() as f32 / orig_w as f32;
-                (thumbnail, scale)
-            }
-        }
+    let original_image = state.original_image.lock().unwrap().clone()
+        .ok_or("No original image loaded for preset preview")?;
+    
+    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    let (cropped_w, _cropped_h) = cropped_image.dimensions();
+
+    const PRESET_PREVIEW_DIM: u32 = 200;
+    let preview_base = cropped_image.thumbnail(PRESET_PREVIEW_DIM, PRESET_PREVIEW_DIM);
+
+    let scale = if cropped_w > 0 {
+        (preview_base.width() as f32 / cropped_w as f32).min(1.0)
+    } else {
+        1.0
     };
 
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, scale);
-    process_image_for_preview(&context, &preview_base, all_adjustments, 50)
+    
+    let processed_pixels = run_gpu_processing(&context, &preview_base, all_adjustments)?;
+    let (width, height) = preview_base.dimensions();
+    let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
+        .ok_or("Failed to create image buffer from GPU data")?;
+    
+    encode_to_base64(&DynamicImage::ImageRgba8(img_buf), 50)
 }
 
 fn main() {
@@ -311,7 +357,9 @@ fn main() {
             file_management::generate_thumbnails_progressive,
             load_presets,
             save_presets,
-            generate_preset_preview
+            generate_preset_preview,
+            load_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

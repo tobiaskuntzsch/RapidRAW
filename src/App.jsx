@@ -47,6 +47,7 @@ export const INITIAL_ADJUSTMENTS = {
 
 function App() {
   const [rootPath, setRootPath] = useState(null);
+  const [appSettings, setAppSettings] = useState(null);
   const [currentFolderPath, setCurrentFolderPath] = useState(null);
   const [folderTree, setFolderTree] = useState(null);
   const [imageList, setImageList] = useState([]);
@@ -84,6 +85,15 @@ function App() {
     }
     setActiveMaskId(null);
   };
+
+  useEffect(() => {
+    invoke('load_settings')
+      .then(setAppSettings)
+      .catch(err => {
+        console.error("Failed to load settings:", err);
+        setAppSettings({ last_root_path: null });
+      });
+  }, []);
 
   useEffect(() => {
     let isEffectActive = true;
@@ -175,6 +185,20 @@ function App() {
     }
   };
 
+  const handleContinueSession = () => {
+    if (appSettings?.last_root_path) {
+      setRootPath(appSettings.last_root_path);
+      handleSelectSubfolder(appSettings.last_root_path, true);
+    }
+  };
+
+  const handleGoHome = () => {
+    setRootPath(null);
+    setCurrentFolderPath(null);
+    setImageList([]);
+    setFolderTree(null);
+  };
+
   const handleSelectSubfolder = async (path, isNewRoot = false) => {
     setIsViewLoading(true);
     if (loadingTimeout) clearTimeout(loadingTimeout);
@@ -186,6 +210,12 @@ function App() {
       if (isNewRoot) {
         setIsTreeLoading(true);
         setFolderTree(null);
+        
+        invoke('save_settings', { settings: { last_root_path: path } })
+          .then(() => {
+            setAppSettings(prev => ({ ...prev, last_root_path: path }));
+          })
+          .catch(err => console.error("Failed to save settings:", err));
         
         const timeoutId = setTimeout(() => {
           setIsTreeLoading(false);
@@ -211,7 +241,8 @@ function App() {
         setQuickPreviewUrl(null);
         setHistogram(null);
       }
-    } catch (err) {
+    } catch (err)
+    {
       console.error("Failed to load folder contents:", err);
       setError("Failed to load images from the selected folder.");
       setIsTreeLoading(false);
@@ -305,6 +336,125 @@ function App() {
     }
   };
 
+  const renderContent = () => {
+    if (selectedImage) {
+      return (
+        <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
+          <FolderTree 
+            tree={folderTree} 
+            onFolderSelect={handleSelectSubfolder} 
+            selectedPath={currentFolderPath} 
+            isLoading={isTreeLoading}
+            isVisible={isFolderTreeVisible}
+            setIsVisible={setIsFolderTreeVisible}
+          />
+          <div className="flex-1 flex flex-col relative min-w-0 gap-2">
+            <Editor
+              selectedImage={selectedImage}
+              quickPreviewUrl={quickPreviewUrl}
+              finalPreviewUrl={finalPreviewUrl}
+              showOriginal={showOriginal}
+              setShowOriginal={setShowOriginal}
+              isAdjusting={isAdjusting}
+              onBackToLibrary={handleBackToLibrary}
+              isLoading={isViewLoading}
+              isFullScreen={isFullScreen}
+              isFullScreenLoading={isFullScreenLoading}
+              fullScreenUrl={fullScreenUrl}
+              onToggleFullScreen={handleToggleFullScreen}
+              activeRightPanel={activeRightPanel}
+              adjustments={adjustments}
+              setAdjustments={setAdjustments}
+              thumbnails={thumbnails}
+              activeMaskId={activeMaskId}
+              onSelectMask={setActiveMaskId}
+            />
+            <Filmstrip
+              imageList={imageList}
+              selectedImage={selectedImage}
+              onImageSelect={handleImageSelect}
+              isVisible={isFilmstripVisible}
+              setIsVisible={setIsFilmstripVisible}
+              isLoading={isViewLoading}
+              thumbnails={thumbnails}
+            />
+          </div>
+          
+          <div className={`flex items-start ${activeRightPanel ? 'gap-2' : ''}`}>
+            <div className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}>
+              <div className={activeRightPanel === 'adjustments' ? 'h-full' : 'hidden'}>
+                <Controls
+                  adjustments={adjustments}
+                  setAdjustments={setAdjustments}
+                  selectedImage={selectedImage}
+                  histogram={histogram}
+                />
+              </div>
+              <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
+                <MetadataPanel selectedImage={selectedImage} />
+              </div>
+              <div className={activeRightPanel === 'crop' ? 'h-full' : 'hidden'}>
+                <CropPanel 
+                  selectedImage={selectedImage} 
+                  adjustments={adjustments}
+                  setAdjustments={setAdjustments}
+                />
+              </div>
+              <div className={activeRightPanel === 'masks' ? 'h-full' : 'hidden'}>
+                <MasksPanel
+                  adjustments={adjustments}
+                  setAdjustments={setAdjustments}
+                  selectedImage={selectedImage}
+                  onSelectMask={setActiveMaskId}
+                  activeMaskId={activeMaskId}
+                />
+              </div>
+              <div className={activeRightPanel === 'presets' ? 'h-full' : 'hidden'}>
+                <PresetsPanel
+                  adjustments={adjustments}
+                  setAdjustments={setAdjustments}
+                  selectedImage={selectedImage}
+                  activePanel={activeRightPanel}
+                />
+              </div>
+              <div className={activeRightPanel === 'export' ? 'h-full' : 'hidden'}>
+                <ExportPanel
+                  selectedImage={selectedImage}
+                  adjustments={adjustments}
+                />
+              </div>
+              <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
+                <AIPanel selectedImage={selectedImage} />
+              </div>
+            </div>
+            <RightPanelSwitcher 
+              activePanel={activeRightPanel}
+              onPanelSelect={handleRightPanelSelect}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <MainLibrary
+        imageList={imageList}
+        onImageSelect={handleImageSelect}
+        rootPath={rootPath}
+        currentFolderPath={currentFolderPath}
+        folderTree={folderTree}
+        onFolderSelect={handleSelectSubfolder}
+        onOpenFolder={handleOpenFolder}
+        isTreeLoading={isTreeLoading}
+        isLoading={isViewLoading}
+        thumbnails={thumbnails}
+        appSettings={appSettings}
+        onContinueSession={handleContinueSession}
+        onGoHome={handleGoHome}
+      />
+    );
+  };
+
   return (
     <ContextMenuProvider>
       <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden select-none">
@@ -318,116 +468,7 @@ function App() {
               <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
             </div>
           )}
-
-          {selectedImage ? (
-            <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
-              <FolderTree 
-                tree={folderTree} 
-                onFolderSelect={handleSelectSubfolder} 
-                selectedPath={currentFolderPath} 
-                isLoading={isTreeLoading}
-                isVisible={isFolderTreeVisible}
-                setIsVisible={setIsFolderTreeVisible}
-              />
-              <div className="flex-1 flex flex-col relative min-w-0 gap-2">
-                <Editor
-                  selectedImage={selectedImage}
-                  quickPreviewUrl={quickPreviewUrl}
-                  finalPreviewUrl={finalPreviewUrl}
-                  showOriginal={showOriginal}
-                  setShowOriginal={setShowOriginal}
-                  isAdjusting={isAdjusting}
-                  onBackToLibrary={handleBackToLibrary}
-                  isLoading={isViewLoading}
-                  isFullScreen={isFullScreen}
-                  isFullScreenLoading={isFullScreenLoading}
-                  fullScreenUrl={fullScreenUrl}
-                  onToggleFullScreen={handleToggleFullScreen}
-                  activeRightPanel={activeRightPanel}
-                  adjustments={adjustments}
-                  setAdjustments={setAdjustments}
-                  thumbnails={thumbnails}
-                  activeMaskId={activeMaskId}
-                  onSelectMask={setActiveMaskId}
-                />
-                <Filmstrip
-                  imageList={imageList}
-                  selectedImage={selectedImage}
-                  onImageSelect={handleImageSelect}
-                  isVisible={isFilmstripVisible}
-                  setIsVisible={setIsFilmstripVisible}
-                  isLoading={isViewLoading}
-                  thumbnails={thumbnails}
-                />
-              </div>
-              
-              <div className={`flex items-start ${activeRightPanel ? 'gap-2' : ''}`}>
-                <div className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}>
-                  <div className={activeRightPanel === 'adjustments' ? 'h-full' : 'hidden'}>
-                    <Controls
-                      adjustments={adjustments}
-                      setAdjustments={setAdjustments}
-                      selectedImage={selectedImage}
-                      histogram={histogram}
-                    />
-                  </div>
-                  <div className={activeRightPanel === 'metadata' ? 'h-full' : 'hidden'}>
-                    <MetadataPanel selectedImage={selectedImage} />
-                  </div>
-                  <div className={activeRightPanel === 'crop' ? 'h-full' : 'hidden'}>
-                    <CropPanel 
-                      selectedImage={selectedImage} 
-                      adjustments={adjustments}
-                      setAdjustments={setAdjustments}
-                    />
-                  </div>
-                  <div className={activeRightPanel === 'masks' ? 'h-full' : 'hidden'}>
-                    <MasksPanel
-                      adjustments={adjustments}
-                      setAdjustments={setAdjustments}
-                      selectedImage={selectedImage}
-                      onSelectMask={setActiveMaskId}
-                      activeMaskId={activeMaskId}
-                    />
-                  </div>
-                  <div className={activeRightPanel === 'presets' ? 'h-full' : 'hidden'}>
-                    <PresetsPanel
-                      adjustments={adjustments}
-                      setAdjustments={setAdjustments}
-                      selectedImage={selectedImage}
-                      activePanel={activeRightPanel}
-                    />
-                  </div>
-                  <div className={activeRightPanel === 'export' ? 'h-full' : 'hidden'}>
-                    <ExportPanel
-                      selectedImage={selectedImage}
-                      adjustments={adjustments}
-                    />
-                  </div>
-                  <div className={activeRightPanel === 'ai' ? 'h-full' : 'hidden'}>
-                    <AIPanel selectedImage={selectedImage} />
-                  </div>
-                </div>
-                <RightPanelSwitcher 
-                  activePanel={activeRightPanel}
-                  onPanelSelect={handleRightPanelSelect}
-                />
-              </div>
-            </div>
-          ) : (
-            <MainLibrary
-              imageList={imageList}
-              onImageSelect={handleImageSelect}
-              rootPath={rootPath}
-              currentFolderPath={currentFolderPath}
-              folderTree={folderTree}
-              onFolderSelect={handleSelectSubfolder}
-              onOpenFolder={handleOpenFolder}
-              isTreeLoading={isTreeLoading}
-              isLoading={isViewLoading}
-              thumbnails={thumbnails}
-            />
-          )}
+          {renderContent()}
         </div>
       </div>
     </ContextMenuProvider>

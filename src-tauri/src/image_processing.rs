@@ -561,7 +561,7 @@ pub fn process_and_get_dynamic_image(
     Ok(DynamicImage::ImageRgba8(img_buf))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct HistogramData {
     red: Vec<u32>,
     green: Vec<u32>,
@@ -599,41 +599,20 @@ pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData
     Ok(HistogramData { red, green, blue, luma })
 }
 
-#[tauri::command]
-pub fn generate_processed_histogram(
-    js_adjustments: serde_json::Value,
-    state: tauri::State<AppState>,
-) -> Result<HistogramData, String> {
-    let context = get_or_init_gpu_context(&state)?;
-
-    let original_image = state.original_image.lock().unwrap().clone()
-        .ok_or("No image loaded to generate histogram")?;
-
-    let current_crop_value = &js_adjustments["crop"];
-    let cropped_image = apply_crop(original_image, current_crop_value);
-    let (cropped_w, _cropped_h) = cropped_image.dimensions();
-    
-    let preview_base = cropped_image.thumbnail(640, 640);
-
-    let scale = if cropped_w > 0 {
-        (preview_base.width() as f32 / cropped_w as f32).min(1.0)
-    } else {
-        1.0
-    };
-
-    let adjustments = get_all_adjustments_from_json(&js_adjustments, scale);
-    let processed_pixels = run_gpu_processing(&context, &preview_base, adjustments)?;
-
-    let (width, height) = preview_base.dimensions();
-    let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-        .ok_or("Failed to create image buffer from GPU data for histogram")?;
+// This function replaces the old `generate_processed_histogram` command.
+// It no longer runs a GPU pipeline and instead calculates a histogram
+// from an already-processed image.
+pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramData, String> {
+    // Create a smaller thumbnail for faster histogram calculation,
+    // consistent with the original image histogram.
+    let preview = image.thumbnail(512, 512);
 
     let mut red = vec![0; 256];
     let mut green = vec![0; 256];
     let mut blue = vec![0; 256];
     let mut luma = vec![0; 256];
 
-    for pixel in img_buf.pixels() {
+    for pixel in preview.to_rgb8().pixels() {
         let r = pixel[0] as usize;
         let g = pixel[1] as usize;
         let b = pixel[2] as usize;

@@ -137,6 +137,10 @@ function App() {
       listen('preview-update-uncropped', (event) => {
         if (isEffectActive) setUncroppedAdjustedPreviewUrl(event.payload);
       }),
+      // Listen for histogram updates from the backend
+      listen('histogram-update', (event) => {
+        if (isEffectActive) setHistogram(event.payload);
+      }),
       listen('folder-tree-update', (event) => {
         if (isEffectActive) {
           setFolderTree(event.payload);
@@ -178,9 +182,6 @@ function App() {
       setError(`Processing failed: ${err}`);
       setIsAdjusting(false);
     });
-    invoke('generate_processed_histogram', { jsAdjustments: currentAdjustments })
-      .then(setHistogram)
-      .catch(err => console.error("Failed to generate processed histogram:", err));
   }, 100), [selectedImage]);
 
   const debouncedSave = useCallback(debounce((path, adjustmentsToSave) => {

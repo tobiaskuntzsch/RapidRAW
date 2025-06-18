@@ -139,7 +139,7 @@ fn apply_adjustments(
         let (cropped_w, _cropped_h) = cropped_image_base.dimensions();
 
         const QUICK_PREVIEW_DIM: u32 = 1280;
-        const FINAL_PREVIEW_DIM: u32 = 2160;
+        const FINAL_PREVIEW_DIM: u32 = 1920;
 
         let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
         let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
@@ -153,12 +153,17 @@ fn apply_adjustments(
             }
 
             let quick_processed_image = final_processed_image.thumbnail(QUICK_PREVIEW_DIM, QUICK_PREVIEW_DIM);
-            if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 65) {
+            
+            if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&quick_processed_image) {
+                let _ = app_handle.emit("histogram-update", histogram_data);
+            }
+
+            if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 80) {
                 let _ = app_handle.emit("preview-update-quick", base64_str);
             }
         }
 
-        const UNCROPPED_PREVIEW_DIM: u32 = 1280;
+        const UNCROPPED_PREVIEW_DIM: u32 = 1920;
         let (orig_w, _orig_h) = original_image.dimensions();
         
         let uncropped_target_dim = orig_w.min(UNCROPPED_PREVIEW_DIM);
@@ -357,7 +362,6 @@ fn main() {
             generate_fullscreen_preview,
             save_metadata_and_update_thumbnail,
             image_processing::generate_histogram,
-            image_processing::generate_processed_histogram,
             file_management::list_images_in_dir,
             file_management::get_folder_tree,
             file_management::generate_thumbnails,

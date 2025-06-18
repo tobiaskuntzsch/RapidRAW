@@ -20,7 +20,7 @@ use crate::image_processing::{
 };
 use crate::AppState;
 
-const THUMBNAIL_WIDTH: u32 = 640;
+const THUMBNAIL_WIDTH: u32 = 720;
 
 #[tauri::command]
 pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {

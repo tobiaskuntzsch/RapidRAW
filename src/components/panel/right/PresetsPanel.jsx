@@ -95,7 +95,7 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 flex justify-between items-center flex-shrink-0">
+      <div className="p-4 flex justify-between items-center flex-shrink-0 border-b border-surface">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">Presets</h2>
         <button 
           onClick={() => setIsAddModalOpen(true)} 

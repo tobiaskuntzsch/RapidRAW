@@ -43,6 +43,9 @@ export const INITIAL_ADJUSTMENTS = {
   },
   crop: null,
   aspectRatio: null,
+  rotation: 0,
+  flipHorizontal: false,
+  flipVertical: false,
   masks: [],
 };
 
@@ -84,6 +87,11 @@ function App() {
   const [copiedAdjustments, setCopiedAdjustments] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [renderedRightPanel, setRenderedRightPanel] = useState(activeRightPanel);
+  const [collapsibleSectionsState, setCollapsibleSectionsState] = useState({
+    basic: true,
+    curves: true,
+    color: false,
+  });
 
   const { thumbnails } = useThumbnails(imageList);
 
@@ -96,15 +104,10 @@ function App() {
       setActiveRightPanel(null);
     } else {
       setActiveRightPanel(panelId);
+      setRenderedRightPanel(panelId);
     }
     setActiveMaskId(null);
   };
-
-  useEffect(() => {
-    if (activeRightPanel !== null) {
-      setRenderedRightPanel(activeRightPanel);
-    }
-  }, [activeRightPanel]);
 
   const handleTransitionEnd = () => {
     if (activeRightPanel === null) {
@@ -137,7 +140,6 @@ function App() {
       listen('preview-update-uncropped', (event) => {
         if (isEffectActive) setUncroppedAdjustedPreviewUrl(event.payload);
       }),
-      // Listen for histogram updates from the backend
       listen('histogram-update', (event) => {
         if (isEffectActive) setHistogram(event.payload);
       }),
@@ -454,6 +456,7 @@ function App() {
               fullScreenUrl={fullScreenUrl}
               onToggleFullScreen={handleToggleFullScreen}
               activeRightPanel={activeRightPanel}
+              renderedRightPanel={renderedRightPanel}
               adjustments={adjustments}
               setAdjustments={setAdjustments}
               thumbnails={thumbnails}
@@ -494,6 +497,8 @@ function App() {
                     setAdjustments={setAdjustments}
                     selectedImage={selectedImage}
                     histogram={histogram}
+                    collapsibleState={collapsibleSectionsState}
+                    setCollapsibleState={setCollapsibleSectionsState}
                   />
                 )}
                 {renderedRightPanel === 'metadata' && <MetadataPanel selectedImage={selectedImage} />}

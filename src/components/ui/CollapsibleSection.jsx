@@ -1,14 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 
-export default function CollapsibleSection({ title, children, defaultOpen = true }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+export default function CollapsibleSection({ title, children, isOpen, onToggle }) {
   const contentRef = useRef(null);
   const wrapperRef = useRef(null);
-
-  const toggleOpen = () => {
-    setIsOpen(!isOpen);
-  };
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -36,12 +31,12 @@ export default function CollapsibleSection({ title, children, defaultOpen = true
   return (
     <div className="bg-surface rounded-lg overflow-hidden flex-shrink-0">
       <button
-        onClick={toggleOpen}
+        onClick={onToggle}
         className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-card-active transition-colors duration-200"
       >
         <h3 className="text-lg font-normal text-primary text-shadow-shiny">{title}</h3>
-        <ChevronDown 
-          size={20} 
+        <ChevronDown
+          size={20}
           className={`text-accent transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>

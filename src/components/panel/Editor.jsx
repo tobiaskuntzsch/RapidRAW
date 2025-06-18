@@ -154,6 +154,10 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     });
   }, [mask.id, mask.geometry, onUpdate, scale]);
 
+  if (!mask.visible) {
+    return null;
+  }
+
   const commonProps = {
     onClick: onSelect,
     onTap: onSelect,
@@ -198,7 +202,6 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
       />
     );
   }
-
   return null;
 });
 
@@ -248,9 +251,9 @@ const ImageCanvas = memo(({
   }, [isCropping]);
 
   const imageLayers = [
-    { id: 'original', src: selectedImage.originalUrl, visible: showOriginal, zIndex: 0, style: { pointerEvents: 'none' } },
-    { id: 'thumb', src: thumbnailData, visible: !showOriginal && !quickPreviewLoaded, zIndex: 1 },
-    { id: 'quick', src: quickPreviewUrl, visible: !showOriginal, zIndex: 2, onLoad: () => setQuickPreviewLoaded(true) },
+    { id: 'original', src: selectedImage.originalUrl, visible: showOriginal, zIndex: 0, style: { pointerEvents: 'none' }, isFading: true },
+    { id: 'thumb', src: thumbnailData, visible: !showOriginal && !quickPreviewLoaded, zIndex: 1, isFading: true },
+    { id: 'quick', src: quickPreviewUrl, visible: !showOriginal, zIndex: 2, onLoad: () => setQuickPreviewLoaded(true), isFading: true },
     { id: 'final', src: finalPreviewUrl, visible: !showOriginal, zIndex: 3, onLoad: () => setHighResLoaded(true), isFading: true, isLoaded: highResLoaded },
   ];
 
@@ -286,8 +289,12 @@ const ImageCanvas = memo(({
           <Stage
             width={imageRenderSize.width}
             height={imageRenderSize.height}
-            className="absolute top-0 left-0"
-            style={{ zIndex: 4 }}
+            className="absolute top-0 left-0 transition-opacity duration-300"
+            style={{
+              zIndex: 4,
+              opacity: showOriginal ? 0 : 1,
+              pointerEvents: showOriginal ? 'none' : 'auto',
+            }}
             onMouseDown={(e) => e.target === e.target.getStage() && onSelectMask(null)}
           >
             <Layer>
@@ -339,7 +346,7 @@ const ImageCanvas = memo(({
 export default function Editor({
   selectedImage, quickPreviewUrl, finalPreviewUrl, uncroppedAdjustedPreviewUrl,
   showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
-  isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel,
+  isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel, renderedRightPanel,
   adjustments, setAdjustments, thumbnails, activeMaskId, onSelectMask,
   transformWrapperRef, onZoomed
 }) {
@@ -348,8 +355,8 @@ export default function Editor({
   const [isLoaderVisible, setIsLoaderVisible] = useState(false);
   const imageContainerRef = useRef(null);
 
-  const isCropping = activeRightPanel === 'crop';
-  const isMasking = activeRightPanel === 'masks';
+  const isCropping = renderedRightPanel === 'crop';
+  const isMasking = renderedRightPanel === 'masks';
   const thumbnailData = thumbnails[selectedImage?.path];
   const showSpinner = isLoading && !quickPreviewUrl && !thumbnailData;
 

@@ -148,7 +148,7 @@ fn apply_adjustments(
         let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
 
         if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
-            if let Ok(base64_str) = encode_to_base64(&final_processed_image, 85) {
+            if let Ok(base64_str) = encode_to_base64(&final_processed_image, 88) {
                 let _ = app_handle.emit("preview-update-final", base64_str);
             }
 

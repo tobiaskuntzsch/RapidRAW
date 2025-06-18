@@ -63,6 +63,7 @@ function App() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [quickPreviewUrl, setQuickPreviewUrl] = useState(null);
   const [finalPreviewUrl, setFinalPreviewUrl] = useState(null);
+  const [uncroppedAdjustedPreviewUrl, setUncroppedAdjustedPreviewUrl] = useState(null);
   const [adjustments, setAdjustments] = useState(INITIAL_ADJUSTMENTS);
   const [showOriginal, setShowOriginal] = useState(false);
   const [isTreeLoading, setIsTreeLoading] = useState(false);
@@ -132,6 +133,9 @@ function App() {
           setFinalPreviewUrl(event.payload);
           setIsAdjusting(false);
         }
+      }),
+      listen('preview-update-uncropped', (event) => {
+        if (isEffectActive) setUncroppedAdjustedPreviewUrl(event.payload);
       }),
       listen('folder-tree-update', (event) => {
         if (isEffectActive) {
@@ -283,6 +287,7 @@ function App() {
         setSelectedImage(null);
         setFinalPreviewUrl(null);
         setQuickPreviewUrl(null);
+        setUncroppedAdjustedPreviewUrl(null);
         setHistogram(null);
       }
     } catch (err)
@@ -307,6 +312,7 @@ function App() {
     setHistogram(null);
     setQuickPreviewUrl(null);
     setFinalPreviewUrl(null);
+    setUncroppedAdjustedPreviewUrl(null);
     setAdjustments(INITIAL_ADJUSTMENTS);
     setShowOriginal(false);
     setActiveMaskId(null);
@@ -361,6 +367,7 @@ function App() {
     setSelectedImage(null);
     setFinalPreviewUrl(null);
     setQuickPreviewUrl(null);
+    setUncroppedAdjustedPreviewUrl(null);
     setHistogram(null);
     setActiveMaskId(null);
   };
@@ -435,6 +442,7 @@ function App() {
               selectedImage={selectedImage}
               quickPreviewUrl={quickPreviewUrl}
               finalPreviewUrl={finalPreviewUrl}
+              uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
               showOriginal={showOriginal}
               setShowOriginal={setShowOriginal}
               isAdjusting={isAdjusting}

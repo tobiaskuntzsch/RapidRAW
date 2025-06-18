@@ -17,7 +17,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::image_processing::{
     get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
-    ImageMetadata, apply_crop, AllAdjustments,
+    ImageMetadata, apply_crop, AllAdjustments, process_and_get_dynamic_image,
 };
 use crate::file_management::get_sidecar_path;
 
@@ -121,12 +121,12 @@ fn apply_adjustments(
         None => false,
     };
 
+    let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+
     let cropped_image_base = if cache_is_valid {
         cache_lock.as_ref().unwrap().cropped_image.clone()
     } else {
-        let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
-        
-        let new_cropped_image = apply_crop(original_image, current_crop_value);
+        let new_cropped_image = apply_crop(original_image.clone(), current_crop_value);
 
         *cache_lock = Some(PreviewCache {
             crop_value: current_crop_value.clone(),
@@ -141,24 +141,34 @@ fn apply_adjustments(
         const QUICK_PREVIEW_DIM: u32 = 1280;
         const FINAL_PREVIEW_DIM: u32 = 2160;
 
-        let quick_target_dim = cropped_w.min(QUICK_PREVIEW_DIM);
-        let quick_preview_base = cropped_image_base.thumbnail(quick_target_dim, quick_target_dim);
-        
-        let quick_scale = (quick_preview_base.width() as f32 / cropped_w as f32).min(1.0);
-        let quick_adjustments = get_all_adjustments_from_json(&adjustments_clone, quick_scale);
-
-        if let Ok(base64_str) = process_image_for_preview(&context, &quick_preview_base, quick_adjustments, 65) {
-            let _ = app_handle.emit("preview-update-quick", base64_str);
-        }
-
         let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
         let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
         
-        let final_scale = (final_preview_base.width() as f32 / cropped_w as f32).min(1.0);
+        let final_scale = if cropped_w > 0 { (final_preview_base.width() as f32 / cropped_w as f32).min(1.0) } else { 1.0 };
         let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
 
-        if let Ok(base64_str) = process_image_for_preview(&context, &final_preview_base, final_adjustments, 85) {
-            let _ = app_handle.emit("preview-update-final", base64_str);
+        if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
+            if let Ok(base64_str) = encode_to_base64(&final_processed_image, 85) {
+                let _ = app_handle.emit("preview-update-final", base64_str);
+            }
+
+            let quick_processed_image = final_processed_image.thumbnail(QUICK_PREVIEW_DIM, QUICK_PREVIEW_DIM);
+            if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 65) {
+                let _ = app_handle.emit("preview-update-quick", base64_str);
+            }
+        }
+
+        const UNCROPPED_PREVIEW_DIM: u32 = 1280;
+        let (orig_w, _orig_h) = original_image.dimensions();
+        
+        let uncropped_target_dim = orig_w.min(UNCROPPED_PREVIEW_DIM);
+        let uncropped_preview_base = original_image.thumbnail(uncropped_target_dim, uncropped_target_dim);
+
+        let uncropped_scale = if orig_w > 0 { (uncropped_preview_base.width() as f32 / orig_w as f32).min(1.0) } else { 1.0 };
+        let uncropped_adjustments = get_all_adjustments_from_json(&adjustments_clone, uncropped_scale);
+
+        if let Ok(base64_str) = process_image_for_preview(&context, &uncropped_preview_base, uncropped_adjustments, 85) {
+            let _ = app_handle.emit("preview-update-uncropped", base64_str);
         }
     });
 
@@ -313,12 +323,9 @@ fn generate_preset_preview(
 
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, scale);
     
-    let processed_pixels = run_gpu_processing(&context, &preview_base, all_adjustments)?;
-    let (width, height) = preview_base.dimensions();
-    let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-        .ok_or("Failed to create image buffer from GPU data")?;
+    let processed_image = process_and_get_dynamic_image(&context, &preview_base, all_adjustments)?;
     
-    encode_to_base64(&DynamicImage::ImageRgba8(img_buf), 50)
+    encode_to_base64(&processed_image, 50)
 }
 
 fn main() {

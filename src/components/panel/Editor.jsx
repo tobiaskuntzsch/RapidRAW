@@ -226,38 +226,26 @@ const EditorToolbar = memo(({ onBackToLibrary, selectedImage, isLoading, onToggl
 const ImageCanvas = memo(({
   isCropping, crop, setCrop, handleCropComplete, adjustments, selectedImage,
   isMasking, imageRenderSize, showOriginal, thumbnailData, quickPreviewUrl, finalPreviewUrl,
+  uncroppedAdjustedPreviewUrl,
   onSelectMask, activeMaskId, handleUpdateMask, isMaskHovered, setIsMaskHovered
 }) => {
   const [quickPreviewLoaded, setQuickPreviewLoaded] = useState(false);
   const [highResLoaded, setHighResLoaded] = useState(false);
+  const [isCropViewVisible, setIsCropViewVisible] = useState(false);
 
   useEffect(() => {
     setQuickPreviewLoaded(false);
     setHighResLoaded(false);
   }, [selectedImage.path, adjustments]);
 
-  if (isCropping) {
-    return (
-      <div className="w-full h-full flex items-center justify-center p-8">
-        {selectedImage.originalUrl && (
-          <div style={{ width: '70%', height: '70%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <ReactCrop
-              crop={crop}
-              onChange={(_, percentCrop) => setCrop(percentCrop)}
-              onComplete={handleCropComplete}
-              aspect={adjustments.aspectRatio}
-            >
-              <img
-                alt="Crop preview"
-                src={selectedImage.originalUrl}
-                style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-              />
-            </ReactCrop>
-          </div>
-        )}
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (isCropping) {
+      const timer = setTimeout(() => setIsCropViewVisible(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsCropViewVisible(false);
+    }
+  }, [isCropping]);
 
   const imageLayers = [
     { id: 'original', src: selectedImage.originalUrl, visible: showOriginal, zIndex: 0, style: { pointerEvents: 'none' } },
@@ -266,58 +254,94 @@ const ImageCanvas = memo(({
     { id: 'final', src: finalPreviewUrl, visible: !showOriginal, zIndex: 3, onLoad: () => setHighResLoaded(true), isFading: true, isLoaded: highResLoaded },
   ];
 
+  const cropPreviewUrl = uncroppedAdjustedPreviewUrl || selectedImage.originalUrl;
+
   return (
     <div className="relative" style={{ width: imageRenderSize.width, height: imageRenderSize.height }}>
-      {imageLayers.map(layer => layer.src && (
-        <img
-          key={layer.id}
-          src={layer.src}
-          alt={layer.id}
-          onLoad={layer.onLoad}
-          className={clsx(
-            "absolute top-0 left-0 w-full h-full object-contain",
-            layer.isFading && "transition-opacity duration-300"
-          )}
-          style={{
-            opacity: layer.visible ? (layer.isLoaded !== undefined ? (layer.isLoaded ? 1 : 0) : 1) : 0,
-            zIndex: layer.zIndex,
-            ...layer.style,
-          }}
-        />
-      ))}
-      {isMasking && imageRenderSize.width > 0 && (
-        <Stage
-          width={imageRenderSize.width}
-          height={imageRenderSize.height}
-          className="absolute top-0 left-0"
-          style={{ zIndex: 4 }}
-          onMouseDown={(e) => e.target === e.target.getStage() && onSelectMask(null)}
-        >
-          <Layer>
-            {adjustments.masks.map(mask => (
-              <MaskOverlay
-                key={mask.id}
-                mask={mask}
-                scale={imageRenderSize.scale}
-                onUpdate={handleUpdateMask}
-                isSelected={mask.id === activeMaskId}
-                onSelect={() => onSelectMask(mask.id)}
-                onMaskMouseEnter={() => setIsMaskHovered(true)}
-                onMaskMouseLeave={() => setIsMaskHovered(false)}
+      <div
+        className="absolute inset-0 w-full h-full"
+        style={{
+          opacity: isCropViewVisible ? 0 : 1,
+          pointerEvents: isCropViewVisible ? 'none' : 'auto',
+        }}
+      >
+        {imageLayers.map(layer => layer.src && (
+          <img
+            key={layer.id}
+            src={layer.src}
+            alt={layer.id}
+            onLoad={layer.onLoad}
+            className={clsx(
+              "absolute top-0 left-0 w-full h-full object-contain",
+              layer.isFading && "transition-opacity duration-300"
+            )}
+            style={{
+              opacity: layer.visible ? (layer.isLoaded !== undefined ? (layer.isLoaded ? 1 : 0) : 1) : 0,
+              zIndex: layer.zIndex,
+              ...layer.style,
+            }}
+          />
+        ))}
+        {isMasking && imageRenderSize.width > 0 && (
+          <Stage
+            width={imageRenderSize.width}
+            height={imageRenderSize.height}
+            className="absolute top-0 left-0"
+            style={{ zIndex: 4 }}
+            onMouseDown={(e) => e.target === e.target.getStage() && onSelectMask(null)}
+          >
+            <Layer>
+              {adjustments.masks.map(mask => (
+                <MaskOverlay
+                  key={mask.id}
+                  mask={mask}
+                  scale={imageRenderSize.scale}
+                  onUpdate={handleUpdateMask}
+                  isSelected={mask.id === activeMaskId}
+                  onSelect={() => onSelectMask(mask.id)}
+                  onMaskMouseEnter={() => setIsMaskHovered(true)}
+                  onMaskMouseLeave={() => setIsMaskHovered(false)}
+                />
+              ))}
+            </Layer>
+          </Stage>
+        )}
+      </div>
+
+      <div
+        className="absolute inset-0 w-full h-full flex items-center justify-center"
+        style={{
+          opacity: isCropViewVisible ? 1 : 0,
+          pointerEvents: isCropViewVisible ? 'auto' : 'none',
+        }}
+      >
+        {cropPreviewUrl && (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ReactCrop
+              crop={crop}
+              onChange={(_, percentCrop) => setCrop(percentCrop)}
+              onComplete={handleCropComplete}
+              aspect={adjustments.aspectRatio}
+            >
+              <img
+                alt="Crop preview"
+                src={cropPreviewUrl}
+                style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
               />
-            ))}
-          </Layer>
-        </Stage>
-      )}
+            </ReactCrop>
+          </div>
+        )}
+      </div>
     </div>
   );
 });
 
 export default function Editor({
-  selectedImage, quickPreviewUrl, finalPreviewUrl, showOriginal, setShowOriginal,
-  isAdjusting, onBackToLibrary, isLoading, isFullScreen, isFullScreenLoading,
-  fullScreenUrl, onToggleFullScreen, activeRightPanel, adjustments,
-  setAdjustments, thumbnails, activeMaskId, onSelectMask, transformWrapperRef, onZoomed
+  selectedImage, quickPreviewUrl, finalPreviewUrl, uncroppedAdjustedPreviewUrl,
+  showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
+  isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel,
+  adjustments, setAdjustments, thumbnails, activeMaskId, onSelectMask,
+  transformWrapperRef, onZoomed
 }) {
   const [crop, setCrop] = useState();
   const [isMaskHovered, setIsMaskHovered] = useState(false);
@@ -432,7 +456,7 @@ export default function Editor({
             limitToBounds={true}
             centerZoomedOut={true}
             doubleClick={{ disabled: true }}
-            panning={{ disabled: isMaskHovered }}
+            panning={{ disabled: isMaskHovered || isCropping }}
             onTransformed={(_, state) => onZoomed(state)}
           >
             <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -449,6 +473,7 @@ export default function Editor({
                 thumbnailData={thumbnailData}
                 quickPreviewUrl={quickPreviewUrl}
                 finalPreviewUrl={finalPreviewUrl}
+                uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
                 onSelectMask={onSelectMask}
                 activeMaskId={activeMaskId}
                 handleUpdateMask={handleUpdateMask}

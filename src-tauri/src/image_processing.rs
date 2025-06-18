@@ -549,6 +549,18 @@ pub fn run_gpu_processing(
     Ok(final_pixels)
 }
 
+pub fn process_and_get_dynamic_image(
+    context: &GpuContext,
+    base_image: &DynamicImage,
+    all_adjustments: AllAdjustments,
+) -> Result<DynamicImage, String> {
+    let processed_pixels = run_gpu_processing(context, base_image, all_adjustments)?;
+    let (width, height) = base_image.dimensions();
+    let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
+        .ok_or("Failed to create image buffer from GPU data")?;
+    Ok(DynamicImage::ImageRgba8(img_buf))
+}
+
 #[derive(Serialize)]
 pub struct HistogramData {
     red: Vec<u32>,

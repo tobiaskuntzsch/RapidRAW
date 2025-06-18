@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
+import { centerCrop, makeAspectCrop } from 'react-image-crop';
 import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
@@ -45,6 +46,13 @@ export const INITIAL_ADJUSTMENTS = {
   masks: [],
 };
 
+function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
+  return centerCrop(
+    makeAspectCrop({ unit: '%', width: 100 }, aspect, mediaWidth, mediaHeight),
+    mediaWidth,
+    mediaHeight
+  );
+}
 
 function App() {
   const [rootPath, setRootPath] = useState(null);
@@ -74,8 +82,6 @@ function App() {
   const [activeMaskId, setActiveMaskId] = useState(null);
   const [copiedAdjustments, setCopiedAdjustments] = useState(null);
   const [zoom, setZoom] = useState(1);
-
-  // --- NEW STATE: This tracks which panel should be in the DOM.
   const [renderedRightPanel, setRenderedRightPanel] = useState(activeRightPanel);
 
   const { thumbnails } = useThumbnails(imageList);
@@ -93,20 +99,13 @@ function App() {
     setActiveMaskId(null);
   };
 
-  // --- NEW EFFECT: This keeps the rendered panel in sync with the active one.
-  // If a new panel is selected, we immediately render it.
-  // If the panel is closed (activeRightPanel is null), we do nothing here,
-  // leaving the old panel rendered for its closing animation.
   useEffect(() => {
     if (activeRightPanel !== null) {
       setRenderedRightPanel(activeRightPanel);
     }
   }, [activeRightPanel]);
 
-  // --- NEW HANDLER: This will be called when the width transition finishes.
   const handleTransitionEnd = () => {
-    // If the panel has finished closing (activeRightPanel is null),
-    // we can now safely remove the panel content from the DOM.
     if (activeRightPanel === null) {
       setRenderedRightPanel(null);
     }
@@ -157,7 +156,7 @@ function App() {
         if (isEffectActive) console.log(`Export successful to ${event.payload}`);
       })
     ];
-  
+
     return () => {
       isEffectActive = false;
       listeners.forEach(unlistenPromise => unlistenPromise.then(unlisten => unlisten()));
@@ -198,6 +197,25 @@ function App() {
     }
   }, [adjustments, selectedImage, applyAdjustments, debouncedSave]);
 
+  useEffect(() => {
+    if (adjustments.aspectRatio !== null && adjustments.crop === null && selectedImage?.width && selectedImage?.height) {
+      const { width: imgWidth, height: imgHeight } = selectedImage;
+      const newPercentCrop = centerAspectCrop(imgWidth, imgHeight, adjustments.aspectRatio);
+
+      const newPixelCrop = {
+        x: Math.round((newPercentCrop.x / 100) * imgWidth),
+        y: Math.round((newPercentCrop.y / 100) * imgHeight),
+        width: Math.round((newPercentCrop.width / 100) * imgWidth),
+        height: Math.round((newPercentCrop.height / 100) * imgHeight),
+      };
+
+      setAdjustments(prev => ({
+        ...prev,
+        crop: newPixelCrop,
+      }));
+    }
+  }, [adjustments.aspectRatio, adjustments.crop, selectedImage]);
+
   const handleOpenFolder = async () => {
     try {
       const selected = await open({ directory: true, multiple: false, defaultPath: await homeDir() });
@@ -228,7 +246,7 @@ function App() {
   const handleSelectSubfolder = async (path, isNewRoot = false) => {
     setIsViewLoading(true);
     if (loadingTimeout) clearTimeout(loadingTimeout);
-    
+
     try {
       setCurrentFolderPath(path);
       const promises = [invoke('list_images_in_dir', { path })];
@@ -236,18 +254,18 @@ function App() {
       if (isNewRoot) {
         setIsTreeLoading(true);
         setFolderTree(null);
-        
+
         invoke('save_settings', { settings: { last_root_path: path } })
           .then(() => {
             setAppSettings(prev => ({ ...prev, last_root_path: path }));
           })
           .catch(err => console.error("Failed to save settings:", err));
-        
+
         const timeoutId = setTimeout(() => {
           setIsTreeLoading(false);
           setError('Folder tree loading timed out. Please try again.');
         }, 10000);
-        
+
         setLoadingTimeout(timeoutId);
         folderTreeTimeoutRef.current = timeoutId;
 
@@ -300,17 +318,17 @@ function App() {
     try {
       const loadImageResult = await invoke('load_image', { path });
       const histData = await invoke('generate_histogram');
-      
+
       setSelectedImage(currentSelected => {
         if (currentSelected && currentSelected.path === path) {
           setHistogram(histData);
-          return { 
-            ...currentSelected, 
+          return {
+            ...currentSelected,
             originalUrl: loadImageResult.original_base64,
             width: loadImageResult.width,
             height: loadImageResult.height,
             metadata: loadImageResult.metadata,
-            isReady: true 
+            isReady: true
           };
         }
         return currentSelected;
@@ -390,7 +408,7 @@ function App() {
       const { positionX, positionY, scale } = state;
       const container = transformWrapperRef.current.instance.wrapperComponent;
       if (!container) return;
-      
+
       const { clientWidth, clientHeight } = container;
       const centerX = clientWidth / 2;
       const centerY = clientHeight / 2;
@@ -404,10 +422,10 @@ function App() {
     if (selectedImage) {
       return (
         <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
-          <FolderTree 
-            tree={folderTree} 
-            onFolderSelect={handleSelectSubfolder} 
-            selectedPath={currentFolderPath} 
+          <FolderTree
+            tree={folderTree}
+            onFolderSelect={handleSelectSubfolder}
+            selectedPath={currentFolderPath}
             isLoading={isTreeLoading}
             isVisible={isFolderTreeVisible}
             setIsVisible={setIsFolderTreeVisible}
@@ -454,14 +472,12 @@ function App() {
               isLoading={isViewLoading}
             />
           </div>
-          
+
           <div className="flex bg-bg-secondary rounded-lg h-full">
-            {/* --- UPDATED CONTAINER: Added onTransitionEnd handler --- */}
-            <div 
+            <div
               className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}
               onTransitionEnd={handleTransitionEnd}
             >
-              {/* --- UPDATED RENDER LOGIC: Use renderedRightPanel to decide which panel is in the DOM --- */}
               <div className="w-80 h-full">
                 {renderedRightPanel === 'adjustments' && (
                   <Controls
@@ -473,8 +489,8 @@ function App() {
                 )}
                 {renderedRightPanel === 'metadata' && <MetadataPanel selectedImage={selectedImage} />}
                 {renderedRightPanel === 'crop' && (
-                  <CropPanel 
-                    selectedImage={selectedImage} 
+                  <CropPanel
+                    selectedImage={selectedImage}
                     adjustments={adjustments}
                     setAdjustments={setAdjustments}
                   />
@@ -506,7 +522,7 @@ function App() {
               </div>
             </div>
             <div className={`h-full border-l ${activeRightPanel ? 'border-surface' : 'border-transparent'} transition-colors`}>
-              <RightPanelSwitcher 
+              <RightPanelSwitcher
                 activePanel={activeRightPanel}
                 onPanelSelect={handleRightPanelSelect}
               />

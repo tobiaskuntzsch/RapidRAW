@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 
-// 1. Add a `defaultOpen` prop to control the initial state.
 function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
-  // Use the `defaultOpen` prop to set the initial state of `isOpen`.
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const hasChildren = node.children && node.children.length > 0;
   const isSelected = node.path === selectedPath;
 
   useEffect(() => {
-    // This effect ensures parent folders are open if a child is selected.
     if (selectedPath && selectedPath.startsWith(node.path) && selectedPath !== node.path) {
       setIsOpen(true);
     }
@@ -63,7 +60,6 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
               node={childNode}
               onFolderSelect={onFolderSelect}
               selectedPath={selectedPath}
-              // Note: `defaultOpen` is not passed here, so it defaults to `false` for children.
             />
           ))}
         </div>
@@ -81,7 +77,7 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
     >
       <button
         onClick={() => setIsVisible(!isVisible)}
-        className="absolute top-1/2 -translate-y-1/2 right-1 w-6 h-10 bg-surface hover:bg-card-active rounded-md flex items-center justify-center z-10"
+        className="absolute top-1/2 -translate-y-1/2 right-1 w-6 h-10 hover:bg-card-active rounded-md flex items-center justify-center z-10"
         title={isVisible ? "Collapse Panel" : "Expand Panel"}
       >
         {isVisible ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
@@ -97,7 +93,6 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
           )}
           {!isLoading && tree && (
             <>
-              {/* 2. Pass `defaultOpen={true}` to the root TreeNode */}
               <TreeNode 
                 node={tree} 
                 onFolderSelect={onFolderSelect} 

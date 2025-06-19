@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Star, Copy, ClipboardPaste, ChevronUp, ChevronDown, Check } from 'lucide-react';
+import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check } from 'lucide-react';
 import clsx from 'clsx';
 import Filmstrip from './Filmstrip';
 
@@ -43,6 +43,8 @@ export default function BottomBar({
   isFilmstripVisible,
   setIsFilmstripVisible,
   isLoading,
+  onReset,
+  isResetDisabled,
   isLibraryView = false,
 }) {
   const [isCopied, setIsCopied] = useState(false);
@@ -120,6 +122,17 @@ export default function BottomBar({
                 <ClipboardPaste size={18} />
               )}
             </button>
+
+            {isLibraryView && (
+              <button
+                onClick={onReset}
+                title="Reset All Adjustments"
+                disabled={isResetDisabled}
+                className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors disabled:text-bg-primary disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              >
+                <RotateCcw size={18} />
+              </button>
+            )}
           </div>
         </div>
         

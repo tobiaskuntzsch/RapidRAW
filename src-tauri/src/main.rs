@@ -148,10 +148,6 @@ fn apply_adjustments(
         let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
 
         if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
-            if let Ok(base64_str) = encode_to_base64(&final_processed_image, 88) {
-                let _ = app_handle.emit("preview-update-final", base64_str);
-            }
-
             let quick_processed_image = final_processed_image.thumbnail(QUICK_PREVIEW_DIM, QUICK_PREVIEW_DIM);
             
             if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&quick_processed_image) {
@@ -160,6 +156,10 @@ fn apply_adjustments(
 
             if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 75) {
                 let _ = app_handle.emit("preview-update-quick", base64_str);
+            }
+
+            if let Ok(base64_str) = encode_to_base64(&final_processed_image, 88) {
+                let _ = app_handle.emit("preview-update-final", base64_str);
             }
         }
     });
@@ -291,6 +291,44 @@ fn apply_adjustments_to_paths(
         let metadata = ImageMetadata {
             version: 1,
             rating: new_adjustments["rating"].as_u64().unwrap_or(0) as u8,
+            adjustments: new_adjustments,
+        };
+
+        if let Ok(json_string) = serde_json::to_string_pretty(&metadata) {
+            let _ = std::fs::write(sidecar_path, json_string);
+        }
+    });
+
+    thread::spawn(move || {
+        let _ = file_management::generate_thumbnails_progressive(paths, app_handle);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn reset_adjustments_for_paths(paths: Vec<String>, app_handle: tauri::AppHandle) -> Result<(), String> {
+    use rayon::prelude::*;
+
+    paths.par_iter().for_each(|path| {
+        let sidecar_path = get_sidecar_path(path);
+
+        let existing_metadata: ImageMetadata = if sidecar_path.exists() {
+            fs::read_to_string(&sidecar_path)
+                .ok()
+                .and_then(|content| serde_json::from_str(&content).ok())
+                .unwrap_or_default()
+        } else {
+            ImageMetadata::default()
+        };
+
+        let new_adjustments = serde_json::json!({
+            "rating": existing_metadata.rating
+        });
+        
+        let metadata = ImageMetadata {
+            version: 1,
+            rating: existing_metadata.rating,
             adjustments: new_adjustments,
         };
 
@@ -447,7 +485,8 @@ fn main() {
             generate_preset_preview,
             generate_uncropped_preview,
             load_settings,
-            save_settings
+            save_settings,
+            reset_adjustments_for_paths
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

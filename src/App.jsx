@@ -591,10 +591,27 @@ function App() {
     }
   }, []);
 
-  // NEW: Add handler to clear all selections in the library
   const handleClearSelection = () => {
     setMultiSelectedPaths([]);
     setLibraryActivePath(null);
+  };
+
+  const handleResetAdjustments = () => {
+    if (multiSelectedPaths.length === 0) return;
+
+    invoke('reset_adjustments_for_paths', { paths: multiSelectedPaths })
+      .then(() => {
+        if (multiSelectedPaths.includes(libraryActivePath)) {
+          setLibraryActiveAdjustments(prev => ({
+              ...INITIAL_ADJUSTMENTS,
+              rating: prev.rating
+          }));
+        }
+      })
+      .catch(err => {
+        console.error("Failed to reset adjustments:", err);
+        setError(`Failed to reset adjustments: ${err}`);
+      });
   };
 
   const renderContent = () => {
@@ -753,6 +770,8 @@ function App() {
             onCopy={handleCopyAdjustments}
             onPaste={handlePasteAdjustments}
             isPasteDisabled={copiedAdjustments === null || multiSelectedPaths.length === 0}
+            onReset={handleResetAdjustments}
+            isResetDisabled={multiSelectedPaths.length === 0}
           />}
         </div>
       </div>

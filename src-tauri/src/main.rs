@@ -138,8 +138,8 @@ fn apply_adjustments(
     thread::spawn(move || {
         let (cropped_w, _cropped_h) = cropped_image_base.dimensions();
 
-        const QUICK_PREVIEW_DIM: u32 = 1280;
-        const FINAL_PREVIEW_DIM: u32 = 1920;
+        const QUICK_PREVIEW_DIM: u32 = 1080;
+        const FINAL_PREVIEW_DIM: u32 = 2160;
 
         let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
         let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
@@ -158,19 +158,33 @@ fn apply_adjustments(
                 let _ = app_handle.emit("histogram-update", histogram_data);
             }
 
-            if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 80) {
+            if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 75) {
                 let _ = app_handle.emit("preview-update-quick", base64_str);
             }
         }
+    });
 
-        const UNCROPPED_PREVIEW_DIM: u32 = 1920;
+    Ok(())
+}
+
+#[tauri::command]
+fn generate_uncropped_preview(
+    js_adjustments: serde_json::Value,
+    state: tauri::State<AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let context = get_or_init_gpu_context(&state)?;
+    let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+
+    thread::spawn(move || {
+        const UNCROPPED_PREVIEW_DIM: u32 = 2160;
         let (orig_w, _orig_h) = original_image.dimensions();
         
         let uncropped_target_dim = orig_w.min(UNCROPPED_PREVIEW_DIM);
         let uncropped_preview_base = original_image.thumbnail(uncropped_target_dim, uncropped_target_dim);
 
         let uncropped_scale = if orig_w > 0 { (uncropped_preview_base.width() as f32 / orig_w as f32).min(1.0) } else { 1.0 };
-        let uncropped_adjustments = get_all_adjustments_from_json(&adjustments_clone, uncropped_scale);
+        let uncropped_adjustments = get_all_adjustments_from_json(&js_adjustments, uncropped_scale);
 
         if let Ok(base64_str) = process_image_for_preview(&context, &uncropped_preview_base, uncropped_adjustments, 85) {
             let _ = app_handle.emit("preview-update-uncropped", base64_str);
@@ -431,6 +445,7 @@ fn main() {
             load_presets,
             save_presets,
             generate_preset_preview,
+            generate_uncropped_preview,
             load_settings,
             save_settings
         ])

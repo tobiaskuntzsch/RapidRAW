@@ -128,6 +128,30 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+          return;
+        }
+        
+        event.preventDefault();
+
+        if (imageList.length > 0) {
+          setMultiSelectedPaths(imageList);
+          if (!selectedImage) {
+            setLibraryActivePath(imageList[imageList.length - 1]);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [imageList, selectedImage]);
+
+  useEffect(() => {
     let isEffectActive = true;
 
     const listeners = [
@@ -215,6 +239,13 @@ function App() {
     });
   }, 100), [selectedImage]);
 
+  const debouncedGenerateUncroppedPreview = useCallback(debounce((currentAdjustments) => {
+    if (!selectedImage?.isReady) return;
+    invoke('generate_uncropped_preview', { jsAdjustments: currentAdjustments }).catch(err => {
+      console.error("Failed to generate uncropped preview:", err);
+    });
+  }, 150), [selectedImage]);
+
   const debouncedSave = useCallback(debounce((path, adjustmentsToSave) => {
     invoke('save_metadata_and_update_thumbnail', { path, adjustments: adjustmentsToSave }).catch(err => {
         console.error("Auto-save failed:", err);
@@ -232,6 +263,15 @@ function App() {
       debouncedSave.cancel();
     }
   }, [adjustments, selectedImage, applyAdjustments, debouncedSave]);
+
+  useEffect(() => {
+    if (activeRightPanel === 'crop' && selectedImage?.isReady) {
+      debouncedGenerateUncroppedPreview(adjustments);
+    }
+    return () => {
+      debouncedGenerateUncroppedPreview.cancel();
+    }
+  }, [adjustments, activeRightPanel, selectedImage, debouncedGenerateUncroppedPreview]);
 
   useEffect(() => {
     if (adjustments.aspectRatio !== null && adjustments.crop === null && selectedImage?.width && selectedImage?.height) {
@@ -551,6 +591,12 @@ function App() {
     }
   }, []);
 
+  // NEW: Add handler to clear all selections in the library
+  const handleClearSelection = () => {
+    setMultiSelectedPaths([]);
+    setLibraryActivePath(null);
+  };
+
   const renderContent = () => {
     if (selectedImage) {
       return (
@@ -698,6 +744,7 @@ function App() {
             appSettings={appSettings}
             onContinueSession={handleContinueSession}
             onGoHome={handleGoHome}
+            onClearSelection={handleClearSelection}
           />
           {rootPath && <BottomBar
             isLibraryView={true}

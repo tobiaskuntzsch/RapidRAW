@@ -21,7 +21,10 @@ function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, i
 
   return (
     <div
-      onClick={(e) => onImageClick(path, e)}
+      onClick={(e) => {
+        e.stopPropagation(); // Prevent click from bubbling to the library background
+        onImageClick(path, e);
+      }}
       onDoubleClick={() => onImageDoubleClick(path)}
       className={`aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative transition-all duration-150 ${ringClass}`}
       title={path.split(/[\\/]/).pop()}
@@ -58,16 +61,13 @@ export default function MainLibrary({
   activePath,
   rootPath,
   currentFolderPath,
-  // folderTree, // No longer needed
-  // onFolderSelect, // No longer needed
   onOpenFolder,
-  // isTreeLoading, // No longer needed
   thumbnails,
   appSettings,
   onContinueSession,
   onGoHome,
+  onClearSelection, // Accept the new prop
 }) {
-  // const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true); // REMOVED
   const [showSettings, setShowSettings] = useState(false);
 
   if (!rootPath) {
@@ -170,7 +170,10 @@ export default function MainLibrary({
           <p>No images found in this folder.</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-4">
+        <div 
+          className="flex-1 overflow-y-auto p-4"
+          onClick={onClearSelection}
+        >
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
             {imageList.map((path) => (
               <Thumbnail

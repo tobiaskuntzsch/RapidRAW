@@ -4,19 +4,28 @@ export default function Filmstrip({
   imageList, 
   selectedImage, 
   onImageSelect, 
-  thumbnails
+  thumbnails,
+  multiSelectedPaths
 }) {
   return (
     <div className="h-full overflow-x-auto overflow-y-hidden p-1">
       <div className="flex h-full gap-2">
         {imageList.map((path) => {
-          const isSelected = selectedImage?.path === path;
+          const isActive = selectedImage?.path === path;
+          const isSelected = multiSelectedPaths.includes(path);
           const thumbData = thumbnails[path];
+          
+          const ringClass = isActive
+            ? 'ring-2 ring-accent'
+            : isSelected
+            ? 'ring-2 ring-gray-400'
+            : 'hover:ring-2 hover:ring-hover-color';
+
           return (
             <div
               key={path}
-              onClick={() => onImageSelect(path)}
-              className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${isSelected ? 'ring-2 ring-accent' : 'hover:ring-2 hover:ring-hover-color'}`}
+              onClick={(e) => onImageSelect(path, e)}
+              className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${ringClass}`}
             >
               {thumbData ? (
                 <img

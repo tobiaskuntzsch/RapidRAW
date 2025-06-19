@@ -228,7 +228,7 @@ fn save_metadata_and_update_thumbnail(
 
     let metadata = ImageMetadata {
         version: 1,
-        rating: 0,
+        rating: adjustments["rating"].as_u64().unwrap_or(0) as u8,
         adjustments,
     };
 
@@ -241,6 +241,66 @@ fn save_metadata_and_update_thumbnail(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+fn apply_adjustments_to_paths(
+    paths: Vec<String>,
+    adjustments: Value,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use rayon::prelude::*;
+
+    paths.par_iter().for_each(|path| {
+        let sidecar_path = get_sidecar_path(path);
+
+        let existing_metadata: ImageMetadata = if sidecar_path.exists() {
+            fs::read_to_string(&sidecar_path)
+                .ok()
+                .and_then(|content| serde_json::from_str(&content).ok())
+                .unwrap_or_default()
+        } else {
+            ImageMetadata::default()
+        };
+
+        let mut new_adjustments = existing_metadata.adjustments;
+        if new_adjustments.is_null() {
+            new_adjustments = serde_json::json!({});
+        }
+        
+        if let (Some(new_map), Some(pasted_map)) = (new_adjustments.as_object_mut(), adjustments.as_object()) {
+            for (k, v) in pasted_map {
+                new_map.insert(k.clone(), v.clone());
+            }
+        }
+
+        let metadata = ImageMetadata {
+            version: 1,
+            rating: new_adjustments["rating"].as_u64().unwrap_or(0) as u8,
+            adjustments: new_adjustments,
+        };
+
+        if let Ok(json_string) = serde_json::to_string_pretty(&metadata) {
+            let _ = std::fs::write(sidecar_path, json_string);
+        }
+    });
+
+    thread::spawn(move || {
+        let _ = file_management::generate_thumbnails_progressive(paths, app_handle);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn load_metadata(path: String) -> Result<ImageMetadata, String> {
+    let sidecar_path = get_sidecar_path(&path);
+    if sidecar_path.exists() {
+        let file_content = std::fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&file_content).map_err(|e| e.to_string())
+    } else {
+        Ok(ImageMetadata::default())
+    }
 }
 
 fn get_presets_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -361,6 +421,8 @@ fn main() {
             export_image,
             generate_fullscreen_preview,
             save_metadata_and_update_thumbnail,
+            apply_adjustments_to_paths,
+            load_metadata,
             image_processing::generate_histogram,
             file_management::list_images_in_dir,
             file_management::get_folder_tree,

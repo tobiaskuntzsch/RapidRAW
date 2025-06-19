@@ -64,6 +64,9 @@ function App() {
   const [folderTree, setFolderTree] = useState(null);
   const [imageList, setImageList] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [multiSelectedPaths, setMultiSelectedPaths] = useState([]);
+  const [libraryActivePath, setLibraryActivePath] = useState(null);
+  const [libraryActiveAdjustments, setLibraryActiveAdjustments] = useState(INITIAL_ADJUSTMENTS);
   const [quickPreviewUrl, setQuickPreviewUrl] = useState(null);
   const [finalPreviewUrl, setFinalPreviewUrl] = useState(null);
   const [uncroppedAdjustedPreviewUrl, setUncroppedAdjustedPreviewUrl] = useState(null);
@@ -175,6 +178,32 @@ function App() {
     };
   }, [loadingTimeout, selectedImage?.path]);
 
+  useEffect(() => {
+    if (libraryActivePath) {
+      invoke('load_metadata', { path: libraryActivePath })
+        .then(metadata => {
+          if (metadata.adjustments && !metadata.adjustments.is_null) {
+            const loadedAdjustments = metadata.adjustments;
+            setLibraryActiveAdjustments({
+              ...INITIAL_ADJUSTMENTS,
+              ...loadedAdjustments,
+              hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadedAdjustments.hsl },
+              curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadedAdjustments.curves },
+              masks: loadedAdjustments.masks || [],
+            });
+          } else {
+            setLibraryActiveAdjustments(INITIAL_ADJUSTMENTS);
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load metadata for library active image", err);
+          setLibraryActiveAdjustments(INITIAL_ADJUSTMENTS);
+        });
+    } else {
+      setLibraryActiveAdjustments(INITIAL_ADJUSTMENTS);
+    }
+  }, [libraryActivePath]);
+
   const applyAdjustments = useCallback(debounce((currentAdjustments) => {
     if (!selectedImage?.isReady) return;
     setIsAdjusting(true);
@@ -248,6 +277,8 @@ function App() {
     setCurrentFolderPath(null);
     setImageList([]);
     setFolderTree(null);
+    setMultiSelectedPaths([]);
+    setLibraryActivePath(null);
   };
 
   const handleSelectSubfolder = async (path, isNewRoot = false) => {
@@ -285,6 +316,8 @@ function App() {
 
       const [files] = await Promise.all(promises);
       setImageList(files);
+      setMultiSelectedPaths([]);
+      setLibraryActivePath(null);
 
       if (selectedImage) {
         setSelectedImage(null);
@@ -303,6 +336,71 @@ function App() {
     }
   };
 
+  const handleMultiSelectClick = (path, event, options) => {
+    const { ctrlKey, metaKey, shiftKey } = event;
+    const isCtrlPressed = ctrlKey || metaKey;
+    const { shiftAnchor, onSimpleClick, updateLibraryActivePath } = options;
+
+    if (shiftKey && shiftAnchor) {
+      const lastIndex = imageList.indexOf(shiftAnchor);
+      const currentIndex = imageList.indexOf(path);
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const range = imageList.slice(start, end + 1);
+
+        const baseSelection = isCtrlPressed ? multiSelectedPaths : [shiftAnchor];
+        const newSelection = Array.from(new Set([...baseSelection, ...range]));
+        setMultiSelectedPaths(newSelection);
+
+        if (updateLibraryActivePath) {
+          setLibraryActivePath(path);
+        }
+      }
+    } else if (isCtrlPressed) {
+      const newSelection = new Set(multiSelectedPaths);
+      if (newSelection.has(path)) {
+        newSelection.delete(path);
+      } else {
+        newSelection.add(path);
+      }
+      const newSelectionArray = Array.from(newSelection);
+      setMultiSelectedPaths(newSelectionArray);
+
+      if (updateLibraryActivePath) {
+        if (newSelectionArray.includes(path)) {
+          setLibraryActivePath(path);
+        } else if (newSelectionArray.length > 0) {
+          setLibraryActivePath(newSelectionArray[newSelectionArray.length - 1]);
+        } else {
+          setLibraryActivePath(null);
+        }
+      }
+    } else {
+      onSimpleClick(path);
+    }
+  };
+
+  const handleLibraryImageSingleClick = (path, event) => {
+    handleMultiSelectClick(path, event, {
+      shiftAnchor: libraryActivePath,
+      updateLibraryActivePath: true,
+      onSimpleClick: (p) => {
+        setMultiSelectedPaths([p]);
+        setLibraryActivePath(p);
+      },
+    });
+  };
+
+  const handleImageClick = (path, event) => {
+    const inEditor = !!selectedImage;
+    handleMultiSelectClick(path, event, {
+      shiftAnchor: inEditor ? selectedImage.path : libraryActivePath,
+      updateLibraryActivePath: !inEditor,
+      onSimpleClick: handleImageSelect,
+    });
+  };
+
   const handleImageSelect = async (path) => {
     if (selectedImage?.path === path) return;
 
@@ -310,6 +408,8 @@ function App() {
     debouncedSave.cancel();
 
     setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0, metadata: null });
+    setMultiSelectedPaths([path]);
+    setLibraryActivePath(null);
     setIsViewLoading(true);
     setError(null);
     setHistogram(null);
@@ -367,12 +467,14 @@ function App() {
   };
 
   const handleBackToLibrary = () => {
+    const lastActivePath = selectedImage?.path;
     setSelectedImage(null);
     setFinalPreviewUrl(null);
     setQuickPreviewUrl(null);
     setUncroppedAdjustedPreviewUrl(null);
     setHistogram(null);
     setActiveMaskId(null);
+    setLibraryActivePath(lastActivePath);
   };
 
   const handleToggleFullScreen = async () => {
@@ -395,22 +497,43 @@ function App() {
   };
 
   const handleCopyAdjustments = () => {
-    const { crop, masks, aspectRatio, ...rest } = adjustments;
+    const sourceAdjustments = selectedImage ? adjustments : libraryActiveAdjustments;
+    const { crop, masks, aspectRatio, ...rest } = sourceAdjustments;
     setCopiedAdjustments(rest);
   };
 
   const handlePasteAdjustments = () => {
-    if (copiedAdjustments) {
+    if (!copiedAdjustments) return;
+
+    const adjustmentsToPaste = { ...copiedAdjustments };
+
+    if (selectedImage && multiSelectedPaths.length <= 1) {
       setAdjustments(prev => ({
         ...prev,
-        ...copiedAdjustments,
+        ...adjustmentsToPaste,
       }));
+    }
+
+    const pathsToUpdate = multiSelectedPaths.length > 0 ? multiSelectedPaths : (selectedImage ? [selectedImage.path] : []);
+
+    if (pathsToUpdate.length > 0) {
+      invoke('apply_adjustments_to_paths', { paths: pathsToUpdate, adjustments: adjustmentsToPaste })
+        .catch(err => {
+          console.error("Failed to paste adjustments to multiple images:", err);
+          setError(`Failed to paste adjustments: ${err}`);
+        });
     }
   };
 
   const handleRate = useCallback((newRating) => {
-    setAdjustments(prev => ({ ...prev, rating: newRating }));
-  }, []);
+    if (selectedImage) {
+      setAdjustments(prev => ({ ...prev, rating: newRating }));
+    } else if (libraryActivePath) {
+      const newAdjustments = { ...libraryActiveAdjustments, rating: newRating };
+      setLibraryActiveAdjustments(newAdjustments);
+      invoke('save_metadata_and_update_thumbnail', { path: libraryActivePath, adjustments: newAdjustments });
+    }
+  }, [selectedImage, libraryActivePath, libraryActiveAdjustments]);
 
   const handleZoomChange = useCallback((newZoom) => {
     if (transformWrapperRef.current) {
@@ -477,7 +600,8 @@ function App() {
               maxZoom={10}
               imageList={imageList}
               selectedImage={selectedImage}
-              onImageSelect={handleImageSelect}
+              onImageSelect={handleImageClick}
+              multiSelectedPaths={multiSelectedPaths}
               thumbnails={thumbnails}
               isFilmstripVisible={isFilmstripVisible}
               setIsFilmstripVisible={setIsFilmstripVisible}
@@ -547,21 +671,44 @@ function App() {
     }
 
     return (
-      <MainLibrary
-        imageList={imageList}
-        onImageSelect={handleImageSelect}
-        rootPath={rootPath}
-        currentFolderPath={currentFolderPath}
-        folderTree={folderTree}
-        onFolderSelect={handleSelectSubfolder}
-        onOpenFolder={handleOpenFolder}
-        isTreeLoading={isTreeLoading}
-        isLoading={isViewLoading}
-        thumbnails={thumbnails}
-        appSettings={appSettings}
-        onContinueSession={handleContinueSession}
-        onGoHome={handleGoHome}
-      />
+      <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
+        {rootPath && (
+          <FolderTree
+            tree={folderTree}
+            onFolderSelect={handleSelectSubfolder}
+            selectedPath={currentFolderPath}
+            isLoading={isTreeLoading}
+            isVisible={isFolderTreeVisible}
+            setIsVisible={setIsFolderTreeVisible}
+          />
+        )}
+        <div className="flex-1 flex flex-col min-w-0 gap-2">
+          <MainLibrary
+            imageList={imageList}
+            onImageClick={handleLibraryImageSingleClick}
+            onImageDoubleClick={handleImageSelect}
+            multiSelectedPaths={multiSelectedPaths}
+            activePath={libraryActivePath}
+            rootPath={rootPath}
+            currentFolderPath={currentFolderPath}
+            onOpenFolder={handleOpenFolder}
+            isTreeLoading={isTreeLoading}
+            isLoading={isViewLoading}
+            thumbnails={thumbnails}
+            appSettings={appSettings}
+            onContinueSession={handleContinueSession}
+            onGoHome={handleGoHome}
+          />
+          {rootPath && <BottomBar
+            isLibraryView={true}
+            rating={libraryActiveAdjustments.rating || 0}
+            onRate={handleRate}
+            onCopy={handleCopyAdjustments}
+            onPaste={handlePasteAdjustments}
+            isPasteDisabled={copiedAdjustments === null || multiSelectedPaths.length === 0}
+          />}
+        </div>
+      </div>
     );
   };
 

@@ -4,7 +4,7 @@ import Button from '../ui/Button';
 import FolderTree from '../panel/FolderTree';
 import SettingsPanel from './SettingsPanel';
 
-function Thumbnail({ path, data, onDoubleClick }) {
+function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, isActive }) {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -13,10 +13,17 @@ function Thumbnail({ path, data, onDoubleClick }) {
     }
   }, [data]);
 
+  const ringClass = isActive
+    ? 'ring-2 ring-accent'
+    : isSelected
+    ? 'ring-2 ring-gray-400'
+    : 'hover:ring-2 hover:ring-hover-color';
+
   return (
     <div
-      onClick={() => onDoubleClick(path)}
-      className="aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative hover:ring-2 hover:ring-hover-color transition-all duration-150"
+      onClick={(e) => onImageClick(path, e)}
+      onDoubleClick={() => onImageDoubleClick(path)}
+      className={`aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative transition-all duration-150 ${ringClass}`}
       title={path.split(/[\\/]/).pop()}
     >
       {data ? (
@@ -45,19 +52,22 @@ function Thumbnail({ path, data, onDoubleClick }) {
 
 export default function MainLibrary({
   imageList,
-  onImageSelect,
+  onImageClick,
+  onImageDoubleClick,
+  multiSelectedPaths,
+  activePath,
   rootPath,
   currentFolderPath,
-  folderTree,
-  onFolderSelect,
+  // folderTree, // No longer needed
+  // onFolderSelect, // No longer needed
   onOpenFolder,
-  isTreeLoading,
+  // isTreeLoading, // No longer needed
   thumbnails,
   appSettings,
   onContinueSession,
   onGoHome,
 }) {
-  const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true);
+  // const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true); // REMOVED
   const [showSettings, setShowSettings] = useState(false);
 
   if (!rootPath) {
@@ -75,7 +85,6 @@ export default function MainLibrary({
 
     return (
       <div className="flex-1 flex h-full rounded-lg bg-bg-secondary overflow-hidden shadow-lg">
-        {/* Left side: Image - hidden on small screens */}
         <div className="w-1/2 hidden md:block relative">
           <img
             src="/splash.jpg"
@@ -84,7 +93,6 @@ export default function MainLibrary({
           <div className="absolute inset-0 bg-gradient-to-r from-bg-secondary via-bg-secondary/50 to-transparent"></div>
         </div>
 
-        {/* Right side: Content - Conditionally renders Welcome or Settings */}
         <div className="w-full md:w-1/2 flex flex-col p-8 lg:p-16 relative">
           {showSettings ? (
             <SettingsPanel
@@ -142,49 +150,42 @@ export default function MainLibrary({
   }
 
   return (
-    <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
-      <FolderTree
-        tree={folderTree}
-        onFolderSelect={onFolderSelect}
-        selectedPath={currentFolderPath}
-        isLoading={isTreeLoading}
-        isVisible={isFolderTreeVisible}
-        setIsVisible={setIsFolderTreeVisible}
-      />
-      <div className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden">
-        <header className="p-4 flex-shrink-0 flex justify-between items-center border-b border-border-color">
-          <div>
-            <h2 className="text-2xl font-bold text-primary">Library</h2>
-            <p className="text-sm text-text-secondary truncate">{currentFolderPath}</p>
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden">
+      <header className="p-4 flex-shrink-0 flex justify-between items-center border-b border-border-color">
+        <div>
+          <h2 className="text-2xl font-bold text-primary">Library</h2>
+          <p className="text-sm text-text-secondary truncate">{currentFolderPath}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button onClick={onOpenFolder} className="bg-surface text-text-primary shadow-none aspect-square">
+            <Folder size={18} />
+          </Button>
+          <Button onClick={onGoHome} className="bg-surface text-text-primary shadow-none aspect-square">
+            <Home size={18} />
+          </Button>
+        </div>
+      </header>
+      {imageList.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-text-secondary">
+          <p>No images found in this folder.</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+            {imageList.map((path) => (
+              <Thumbnail
+                key={path}
+                path={path}
+                data={thumbnails[path]}
+                onImageClick={onImageClick}
+                onImageDoubleClick={onImageDoubleClick}
+                isSelected={multiSelectedPaths.includes(path)}
+                isActive={activePath === path}
+              />
+            ))}
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={onOpenFolder} className="bg-surface text-text-primary shadow-none aspect-square">
-              <Folder size={18} />
-            </Button>
-            <Button onClick={onGoHome} className="bg-surface text-text-primary shadow-none aspect-square">
-              <Home size={18} />
-            </Button>
-          </div>
-        </header>
-        {imageList.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-text-secondary">
-            <p>No images found in this folder.</p>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
-              {imageList.map((path) => (
-                <Thumbnail
-                  key={path}
-                  path={path}
-                  data={thumbnails[path]}
-                  onDoubleClick={onImageSelect}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

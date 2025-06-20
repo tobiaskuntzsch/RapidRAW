@@ -376,8 +376,6 @@ fn demosaic_pixel_optimized_linear(raw_data: &[u16], x: u32, y: u32, width: u32,
     }
 }
 
-// --- START: OPTIMIZED MENON IMPLEMENTATION ---
-
 #[allow(non_snake_case)]
 fn demosaic_menon2007(cfa_data: &[u16], width: u32, height: u32, pattern: BayerPattern, use_refining_step: bool) -> Vec<f32> {
     let size = (width * height) as usize;
@@ -468,7 +466,6 @@ fn demosaic_menon2007(cfa_data: &[u16], width: u32, height: u32, pattern: BayerP
     let G_conv_at_G_v = convolve_1d(&G_final, width, height, &K_B, Axis::Vertical);
     let B_conv_at_G_v = convolve_1d(&B, width, height, &K_B, Axis::Vertical);
 
-    // CORRECTED and simplified loop
     R_final.par_iter_mut().zip_eq(B_final.par_iter_mut()).enumerate().for_each(|(i, (rf, bf))| {
         if G_m[i] {
             if R_r[i] {
@@ -486,7 +483,6 @@ fn demosaic_menon2007(cfa_data: &[u16], width: u32, height: u32, pattern: BayerP
     let R_final_conv_v = convolve_1d(&R_final, width, height, &K_B, Axis::Vertical);
     let B_final_conv_v = convolve_1d(&B_final, width, height, &K_B, Axis::Vertical);
 
-    // CORRECTED and simplified loop
     R_final.par_iter_mut().zip_eq(B_final.par_iter_mut()).enumerate().for_each(|(i, (rf, bf))| {
         if B_m[i] {
             let rb_diff = if M[i] { R_final_conv_h[i] - B_final_conv_h[i] } else { R_final_conv_v[i] - B_final_conv_v[i] };
@@ -637,8 +633,7 @@ fn convolve_1d(data: &[f32], width: u32, height: u32, kernel: &[f32], axis: Axis
                     Axis::Horizontal => (x as i32 + offset, y as i32),
                     Axis::Vertical => (x as i32, y as i32 + offset),
                 };
-                
-                // Mirror boundary condition
+
                 let mirror_x = if px < 0 { -px } else if px >= width as i32 { 2 * (width as i32 - 1) - px } else { px } as u32;
                 let mirror_y = if py < 0 { -py } else if py >= height as i32 { 2 * (height as i32 - 1) - py } else { py } as u32;
                 
@@ -652,16 +647,9 @@ fn convolve_1d(data: &[f32], width: u32, height: u32, kernel: &[f32], axis: Axis
 }
 
 fn convolve_box_filter_2d(data: &[f32], width: u32, height: u32, k_side: usize) -> Vec<f32> {
-    // A 2D box filter is separable. We can do one horizontal pass and one vertical pass.
     let kernel_1d: Vec<f32> = vec![1.0; k_side];
-    
-    // 1. Horizontal convolution pass
     let horizontal_pass = convolve_1d(data, width, height, &kernel_1d, Axis::Horizontal);
-    
-    // 2. Vertical convolution pass on the result of the horizontal pass
     let vertical_pass = convolve_1d(&horizontal_pass, width, height, &kernel_1d, Axis::Vertical);
     
     vertical_pass
 }
-
-// --- END: OPTIMIZED MENON IMPLEMENTATION ---

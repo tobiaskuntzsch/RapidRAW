@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { Save } from 'lucide-react';
 
 export default function ExportPanel({ selectedImage, adjustments }) {
+  const [demosaicQuality, setDemosaicQuality] = useState('Menon');
+
   const handleExportImage = async () => {
     if (!selectedImage) {
       alert("Please select an image to export.");
@@ -29,7 +32,8 @@ export default function ExportPanel({ selectedImage, adjustments }) {
         try {
           await invoke('export_image', { 
             path: filePath, 
-            jsAdjustments: adjustments
+            jsAdjustments: adjustments,
+            demosaicQuality: selectedImage.isRaw ? demosaicQuality : null,
           });
           alert(`Image saved to ${filePath}`);
         } catch (error) {
@@ -49,8 +53,25 @@ export default function ExportPanel({ selectedImage, adjustments }) {
       </div>
       <div className="flex-grow overflow-y-auto p-4 text-text-secondary">
         {selectedImage ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
+          <div className="flex flex-col items-center justify-center h-full gap-6">
             <p className="text-center">Export the final image with all adjustments applied.</p>
+            
+            {selectedImage.isRaw && (
+              <div className="w-full max-w-xs">
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  RAW Demosaic Quality
+                </label>
+                <select
+                  value={demosaicQuality}
+                  onChange={(e) => setDemosaicQuality(e.target.value)}
+                  className="w-full bg-bg-primary border border-surface rounded-md p-2 text-text-primary focus:ring-accent focus:border-accent"
+                >
+                  <option value="Menon">High Quality</option>
+                  <option value="Linear">Fast</option>
+                </select>
+              </div>
+            )}
+
             <button
               onClick={handleExportImage}
               disabled={!selectedImage}

@@ -31,6 +31,8 @@ pollster = "0.3" # A simple helper for running async wgpu code in a sync context
 bytemuck = { version = "1.14", features = ["derive"] } # For safely casting structs to raw bytes for the GPU
 window-vibrancy = "0.6.0"
 anyhow = "1.0.98"
+kamadak-exif = "0.6.1"
+rawloader = "=0.37.0"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

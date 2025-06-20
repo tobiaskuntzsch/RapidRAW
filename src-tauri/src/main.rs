@@ -2,11 +2,14 @@
 
 mod image_processing;
 mod file_management;
+mod gpu_processing;
+mod raw_processing;
 
 use std::io::Cursor;
 use std::sync::Mutex;
 use std::thread;
 use std::fs;
+use std::collections::HashMap;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use tauri::{Manager, Emitter};
@@ -20,6 +23,7 @@ use crate::image_processing::{
     ImageMetadata, apply_crop, AllAdjustments, process_and_get_dynamic_image,
 };
 use crate::file_management::get_sidecar_path;
+use crate::raw_processing::DemosaicAlgorithm;
 
 #[derive(Clone)]
 pub struct PreviewCache {
@@ -29,6 +33,7 @@ pub struct PreviewCache {
 
 pub struct AppState {
     original_image: Mutex<Option<DynamicImage>>,
+    raw_file_bytes: Mutex<Option<Vec<u8>>>,
     gpu_context: Mutex<Option<GpuContext>>,
     preview_cache: Mutex<Option<PreviewCache>>,
 }
@@ -51,6 +56,17 @@ struct LoadImageResult {
     width: u32,
     height: u32,
     metadata: ImageMetadata,
+    exif: HashMap<String, String>,
+    is_raw: bool,
+}
+
+fn is_raw_file(path: &str) -> bool {
+    let lower_path = path.to_lowercase();
+    matches!(
+        lower_path.split('.').last(),
+        Some("arw") | Some("cr2") | Some("cr3") | Some("nef") | Some("dng") |
+        Some("raf") | Some("orf") | Some("pef") | Some("rw2")
+    )
 }
 
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
@@ -61,12 +77,50 @@ fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String>
     Ok(format!("data:image/jpeg;base64,{}", base64_str))
 }
 
+fn read_exif_data(file_bytes: &[u8]) -> HashMap<String, String> {
+    let mut exif_data = HashMap::new();
+    let exif_reader = exif::Reader::new();
+    if let Ok(exif) = exif_reader.read_from_container(&mut Cursor::new(file_bytes)) {
+        for field in exif.fields() {
+            exif_data.insert(
+                field.tag.to_string(),
+                field.display_value().with_unit(&exif).to_string(),
+            );
+        }
+    }
+    exif_data
+}
+
 #[tauri::command]
 async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<LoadImageResult, String> {
-    let img = image::open(&path).map_err(|e| e.to_string())?;
-    let (orig_width, orig_height) = img.dimensions();
+    let file_bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    let is_raw = is_raw_file(&path);
 
-    const DISPLAY_PREVIEW_DIM: u32 = 1280;
+    let (img, full_res_dims) = if is_raw {
+        *state.raw_file_bytes.lock().unwrap() = Some(file_bytes.clone());
+        
+        let raw_info = rawloader::decode(&mut Cursor::new(&file_bytes))
+            .map_err(|e| e.to_string())?;
+        
+        let crops = raw_info.crops;
+        let full_width = raw_info.width as u32 - crops[3] as u32 - crops[1] as u32;
+        let full_height = raw_info.height as u32 - crops[0] as u32 - crops[2] as u32;
+        
+        let preview_img = raw_processing::develop_raw_fast_preview(&file_bytes)
+            .map_err(|e| e.to_string())?;
+        (preview_img, (full_width, full_height))
+    } else {
+        *state.raw_file_bytes.lock().unwrap() = None;
+        let loaded_img = image::load_from_memory(&file_bytes).map_err(|e| e.to_string())?;
+        let dims = loaded_img.dimensions();
+        (loaded_img, dims)
+    };
+
+    let (orig_width, orig_height) = full_res_dims;
+
+    let exif_data = read_exif_data(&file_bytes);
+
+    const DISPLAY_PREVIEW_DIM: u32 = 2160;
     let display_preview = img.thumbnail(DISPLAY_PREVIEW_DIM, DISPLAY_PREVIEW_DIM);
     let original_base64 = encode_to_base64(&display_preview, 85)?;
 
@@ -86,6 +140,8 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
         width: orig_width,
         height: orig_height,
         metadata,
+        exif: exif_data,
+        is_raw,
     })
 }
 
@@ -200,9 +256,18 @@ fn generate_fullscreen_preview(
     state: tauri::State<AppState>,
 ) -> Result<String, String> {
     let context = get_or_init_gpu_context(&state)?;
-    let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
 
-    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    let base_image = {
+        let raw_bytes_lock = state.raw_file_bytes.lock().unwrap();
+        if let Some(bytes) = &*raw_bytes_lock {
+            raw_processing::develop_raw_image(bytes, raw_processing::DemosaicAlgorithm::Linear)?
+        } else {
+            let original_image_lock = state.original_image.lock().unwrap();
+            original_image_lock.clone().ok_or("No original image loaded")?
+        }
+    };
+
+    let cropped_image = apply_crop(base_image, &js_adjustments["crop"]);
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
 
     let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
@@ -214,20 +279,32 @@ fn generate_fullscreen_preview(
 }
 
 #[tauri::command]
-fn export_image(path: String, js_adjustments: serde_json::Value, state: tauri::State<AppState>) -> Result<(), String> {
-    let original_image = {
-        let lock = state.original_image.lock().unwrap();
-        lock.clone().ok_or("No original image loaded")?
-    };
+fn export_image(
+    path: String,
+    js_adjustments: Value,
+    demosaic_quality: Option<DemosaicAlgorithm>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
     let context = get_or_init_gpu_context(&state)?;
 
-    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    let base_image = {
+        let raw_bytes_lock = state.raw_file_bytes.lock().unwrap();
+        if let (Some(bytes), Some(quality)) = (&*raw_bytes_lock, demosaic_quality) {
+            raw_processing::develop_raw_image(bytes, quality)?
+        } else {
+            let original_image_lock = state.original_image.lock().unwrap();
+            original_image_lock.clone().ok_or("No original image loaded")?
+        }
+    };
+
+    let cropped_image = apply_crop(base_image, &js_adjustments["crop"]);
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
 
     let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
     let (width, height) = cropped_image.dimensions();
     let final_image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create final image buffer")?;
+
     final_image.save(&path).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -464,6 +541,7 @@ fn main() {
         })
         .manage(AppState {
             original_image: Mutex::new(None),
+            raw_file_bytes: Mutex::new(None),
             gpu_context: Mutex::new(None),
             preview_cache: Mutex::new(None),
         })

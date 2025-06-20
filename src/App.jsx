@@ -447,7 +447,7 @@ function App() {
     applyAdjustments.cancel();
     debouncedSave.cancel();
 
-    setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0, metadata: null });
+    setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0, metadata: null, exif: null, isRaw: false });
     setMultiSelectedPaths([path]);
     setLibraryActivePath(null);
     setIsViewLoading(true);
@@ -477,6 +477,8 @@ function App() {
             width: loadImageResult.width,
             height: loadImageResult.height,
             metadata: loadImageResult.metadata,
+            exif: loadImageResult.exif,
+            isRaw: loadImageResult.is_raw,
             isReady: true
           };
         }

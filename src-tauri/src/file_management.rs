@@ -15,12 +15,22 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use crate::image_processing::{
-    self, get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
-    ImageMetadata,
+    get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, Crop,
+    GpuContext, ImageMetadata,
 };
+use crate::raw_processing;
 use crate::AppState;
 
 const THUMBNAIL_WIDTH: u32 = 720;
+
+fn is_raw_file(path: &str) -> bool {
+    let lower_path = path.to_lowercase();
+    matches!(
+        lower_path.split('.').last(),
+        Some("arw") | Some("cr2") | Some("cr3") | Some("nef") | Some("dng") |
+        Some("raf") | Some("orf") | Some("pef") | Some("rw2")
+    )
+}
 
 #[tauri::command]
 pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
@@ -28,12 +38,19 @@ pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
         .map_err(|e| e.to_string())?
         .filter_map(std::result::Result::ok)
         .map(|entry| entry.path())
+        .filter(|path| {
+            !path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map_or(false, |s| s.starts_with('.'))
+        })
         .filter(|path| path.is_file())
         .filter(|path| {
             path.extension()
                 .and_then(|s| s.to_str())
-                .map_or(false, |ext| {
-                    ["jpg", "jpeg", "png", "gif", "bmp"].contains(&ext.to_lowercase().as_str())
+                .map_or(false, |ext_lower| {
+                    let ext = ext_lower.to_lowercase();
+                    ["jpg", "jpeg", "png", "gif", "bmp", "arw", "cr2", "cr3", "nef", "dng", "raf", "orf", "pef", "rw2"].contains(&ext.as_str())
                 })
         })
         .map(|path| path.to_string_lossy().into_owned())
@@ -56,7 +73,12 @@ fn scan_dir_recursive(path: &Path) -> Result<Vec<FolderNode>, std::io::Error> {
     };
     for entry in entries.filter_map(std::result::Result::ok) {
         let current_path = entry.path();
-        if current_path.is_dir() {
+        let is_hidden = current_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map_or(false, |s| s.starts_with('.'));
+
+        if current_path.is_dir() && !is_hidden {
             let sub_children = scan_dir_recursive(&current_path)?;
             let has_images = list_images_in_dir(current_path.to_string_lossy().into_owned())
                 .map_or(false, |images| !images.is_empty());
@@ -119,48 +141,109 @@ pub fn get_sidecar_path(image_path: &str) -> PathBuf {
 fn generate_thumbnail_data(
     path_str: &str,
     gpu_context: Option<&GpuContext>,
-) -> Result<Vec<u8>> {
-    let original_path = Path::new(path_str);
+) -> Result<DynamicImage> {
+    let file_bytes = fs::read(path_str)?;
+
+    // Step 1: Load a reasonably-sized preview image and get original dimensions.
+    let (mut image_to_process, original_dims): (DynamicImage, (u32, u32)) = if is_raw_file(path_str)
+    {
+        let raw_info = rawloader::decode(&mut Cursor::new(&file_bytes))?;
+        let crops = raw_info.crops;
+        let full_width = raw_info.width as u32 - crops[3] as u32 - crops[1] as u32;
+        let full_height = raw_info.height as u32 - crops[0] as u32 - crops[2] as u32;
+
+        (
+            raw_processing::develop_raw_thumbnail(&file_bytes)?,
+            (full_width, full_height),
+        )
+    } else {
+        // Load the full image into memory first for all non-RAW types
+        let img = image::load_from_memory(&file_bytes)?;
+        let original_dims = img.dimensions();
+
+        // Then, if it's too large, create a smaller version for processing
+        const PROCESSING_PREVIEW_DIM: u32 = 1280;
+        let processing_base = if original_dims.0 > PROCESSING_PREVIEW_DIM {
+            img.thumbnail(PROCESSING_PREVIEW_DIM, PROCESSING_PREVIEW_DIM)
+        } else {
+            img
+        };
+        (processing_base, original_dims)
+    };
+
     let sidecar_path = get_sidecar_path(path_str);
-    let img = image::open(original_path)?;
 
-    let mut image_to_process = img;
-
+    // Step 2: If there are adjustments, apply them.
     if let (Some(context), Ok(file_content)) = (gpu_context, fs::read_to_string(sidecar_path)) {
         if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
             if !metadata.adjustments.is_null() {
-                let cropped_image =
-                    image_processing::apply_crop(image_to_process, &metadata.adjustments["crop"]);
-                let (cropped_w, _cropped_h) = cropped_image.dimensions();
+                // The adjustments (crop, masks) are relative to the original image dimensions.
+                // We need to scale them for our smaller preview image.
 
-                const PROCESSING_PREVIEW_DIM: u32 = 1280;
-                let processing_target_dim = cropped_w.min(PROCESSING_PREVIEW_DIM);
-                let processing_base =
-                    cropped_image.thumbnail(processing_target_dim, processing_target_dim);
+                let (orig_w, orig_h) = original_dims;
+                let (preview_w, preview_h) = image_to_process.dimensions();
 
-                let scale = (processing_base.width() as f32 / cropped_w as f32).min(1.0);
-                let gpu_adjustments =
-                    get_all_adjustments_from_json(&metadata.adjustments, scale);
+                // a. Handle crop
+                let crop_val = &metadata.adjustments["crop"];
+                let original_crop = serde_json::from_value::<Crop>(crop_val.clone()).unwrap_or(
+                    Crop {
+                        x: 0.0,
+                        y: 0.0,
+                        width: orig_w as f64,
+                        height: orig_h as f64,
+                    },
+                );
 
+                let crop_scale_x = preview_w as f32 / orig_w as f32;
+                let crop_scale_y = preview_h as f32 / orig_h as f32;
+
+                let preview_crop_x = (original_crop.x as f32 * crop_scale_x).round() as u32;
+                let preview_crop_y = (original_crop.y as f32 * crop_scale_y).round() as u32;
+                let preview_crop_w = (original_crop.width as f32 * crop_scale_x).round() as u32;
+                let preview_crop_h = (original_crop.height as f32 * crop_scale_y).round() as u32;
+
+                let cropped_preview = image_to_process.crop_imm(
+                    preview_crop_x,
+                    preview_crop_y,
+                    preview_crop_w,
+                    preview_crop_h,
+                );
+
+                // b. Calculate scale for GPU adjustments
+                let original_cropped_w = original_crop.width as u32;
+                let scale = if original_cropped_w > 0 {
+                    (cropped_preview.width() as f32 / original_cropped_w as f32).min(1.0)
+                } else {
+                    1.0
+                };
+
+                let gpu_adjustments = get_all_adjustments_from_json(&metadata.adjustments, scale);
+
+                // c. Run GPU processing
                 if let Ok(processed_pixels) =
-                    run_gpu_processing(context, &processing_base, gpu_adjustments)
+                    run_gpu_processing(context, &cropped_preview, gpu_adjustments)
                 {
-                    let (width, height) = processing_base.dimensions();
+                    let (width, height) = cropped_preview.dimensions();
                     if let Some(img_buf) =
                         ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
                     {
                         image_to_process = DynamicImage::ImageRgba8(img_buf);
                     } else {
-                        image_to_process = cropped_image;
+                        image_to_process = cropped_preview;
                     }
                 } else {
-                    image_to_process = cropped_image;
+                    image_to_process = cropped_preview;
                 }
             }
         }
     }
 
-    let thumbnail = image_to_process.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_WIDTH);
+    // Step 3: Return the final processed image, ready for encoding.
+    Ok(image_to_process)
+}
+
+fn encode_thumbnail(image: &DynamicImage) -> Result<Vec<u8>> {
+    let thumbnail = image.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_WIDTH);
     let mut buf = Cursor::new(Vec::new());
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, 75);
     encoder.encode_image(&thumbnail.to_rgba8())?;
@@ -221,16 +304,17 @@ pub fn generate_thumbnails(
                 }
             }
 
-            if let Ok(thumb_data) = generate_thumbnail_data(path_str, gpu_context.as_ref()) {
-                let _ = fs::write(&cache_path, &thumb_data);
-                let base64_str = general_purpose::STANDARD.encode(&thumb_data);
-                Some((
-                    path_str.clone(),
-                    format!("data:image/jpeg;base64,{}", base64_str),
-                ))
-            } else {
-                None
+            if let Ok(thumb_image) = generate_thumbnail_data(path_str, gpu_context.as_ref()) {
+                if let Ok(thumb_data) = encode_thumbnail(&thumb_image) {
+                    let _ = fs::write(&cache_path, &thumb_data);
+                    let base64_str = general_purpose::STANDARD.encode(&thumb_data);
+                    return Some((
+                        path_str.clone(),
+                        format!("data:image/jpeg;base64,{}", base64_str),
+                    ));
+                }
             }
+            None
         })
         .collect();
 
@@ -292,13 +376,14 @@ pub fn generate_thumbnails_progressive(
                     }
                 }
 
-                if let Ok(thumb_data) = generate_thumbnail_data(path_str, gpu_context.as_ref()) {
-                    let _ = fs::write(&cache_path, &thumb_data);
-                    let base64_str = general_purpose::STANDARD.encode(&thumb_data);
-                    Some(format!("data:image/jpeg;base64,{}", base64_str))
-                } else {
-                    None
+                if let Ok(thumb_image) = generate_thumbnail_data(path_str, gpu_context.as_ref()) {
+                    if let Ok(thumb_data) = encode_thumbnail(&thumb_image) {
+                        let _ = fs::write(&cache_path, &thumb_data);
+                        let base64_str = general_purpose::STANDARD.encode(&thumb_data);
+                        return Some(format!("data:image/jpeg;base64,{}", base64_str));
+                    }
                 }
+                None
             })();
 
             if let Some(thumbnail_data) = result {

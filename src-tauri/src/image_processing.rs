@@ -185,14 +185,14 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
     let blue_points: Vec<serde_json::Value> = curves_obj["blue"].as_array().cloned().unwrap_or_default();
 
     GlobalAdjustments {
-        exposure: js_adjustments["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        exposure: js_adjustments["exposure"].as_f64().unwrap_or(0.0) as f32 / 25.0,
         contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         highlights: js_adjustments["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         shadows: js_adjustments["shadows"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-        whites: js_adjustments["whites"].as_f64().unwrap_or(0.0) as f32 / 300.0,
-        blacks: js_adjustments["blacks"].as_f64().unwrap_or(0.0) as f32 / 300.0,
-        saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-        temperature: js_adjustments["temperature"].as_f64().unwrap_or(0.0) as f32 / 250.0,
+        whites: js_adjustments["whites"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        blacks: js_adjustments["blacks"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        temperature: js_adjustments["temperature"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         tint: js_adjustments["tint"].as_f64().unwrap_or(0.0) as f32 / 250.0,
         vibrance: js_adjustments["vibrance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         _pad1: 0.0, _pad2: 0.0,
@@ -294,8 +294,12 @@ pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData
     let image = state.original_image.lock().unwrap().clone()
         .ok_or("No image loaded to generate histogram")?;
 
-    let preview = image.thumbnail(512, 512);
+    calculate_histogram_from_image(&image)
+}
 
+pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramData, String> {
+    let preview = image.thumbnail(768, 768);
+    
     let mut red = vec![0; 256];
     let mut green = vec![0; 256];
     let mut blue = vec![0; 256];
@@ -310,37 +314,45 @@ pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData
         green[g] += 1;
         blue[b] += 1;
 
-        let l = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32).round() as usize;
-        if l < 256 {
-            luma[l] += 1;
-        }
+        let luma_val = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32).round() as usize;
+        let luma_idx = luma_val.min(255);
+        
+        luma[luma_idx] += 1;
     }
+
+    apply_light_smoothing(&mut red);
+    apply_light_smoothing(&mut green);
+    apply_light_smoothing(&mut blue);
+    apply_light_smoothing(&mut luma);
+
+    normalize_histogram_range(&mut red, 0.75);
+    normalize_histogram_range(&mut green, 0.75);
+    normalize_histogram_range(&mut blue, 0.75);
+    normalize_histogram_range(&mut luma, 0.75);
 
     Ok(HistogramData { red, green, blue, luma })
 }
 
-pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramData, String> {
-    let preview = image.thumbnail(512, 512);
+fn apply_light_smoothing(histogram: &mut Vec<u32>) {
+    let original = histogram.clone();
 
-    let mut red = vec![0; 256];
-    let mut green = vec![0; 256];
-    let mut blue = vec![0; 256];
-    let mut luma = vec![0; 256];
+    for i in 2..histogram.len() - 2 {
+        let smoothed = (original[i - 2] as f32 * 0.1 + 
+                       original[i - 1] as f32 * 0.2 + 
+                       original[i] as f32 * 0.4 + 
+                       original[i + 1] as f32 * 0.2 + 
+                       original[i + 2] as f32 * 0.1).round() as u32;
+        histogram[i] = smoothed;
+    }
+}
 
-    for pixel in preview.to_rgb8().pixels() {
-        let r = pixel[0] as usize;
-        let g = pixel[1] as usize;
-        let b = pixel[2] as usize;
-
-        red[r] += 1;
-        green[g] += 1;
-        blue[b] += 1;
-
-        let l = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32).round() as usize;
-        if l < 256 {
-            luma[l] += 1;
+fn normalize_histogram_range(histogram: &mut Vec<u32>, max_range: f32) {
+    if let Some(&max_val) = histogram.iter().max() {
+        if max_val > 0 {
+            let scale_factor = max_range;
+            for value in histogram.iter_mut() {
+                *value = (*value as f32 * scale_factor).round() as u32;
+            }
         }
     }
-
-    Ok(HistogramData { red, green, blue, luma })
 }

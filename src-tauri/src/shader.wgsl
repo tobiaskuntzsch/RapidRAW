@@ -80,6 +80,25 @@ struct AllAdjustments {
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var<uniform> adjustments: AllAdjustments;
 
+// --- Color Space Conversion ---
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let cutoff = vec3<f32>(0.04045);
+    let a = vec3<f32>(0.055);
+    let higher = pow((c + a) / (1.0 + a), vec3<f32>(2.4));
+    let lower = c / 12.92;
+    return select(higher, lower, c <= cutoff);
+}
+
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let c_clamped = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    let cutoff = vec3<f32>(0.0031308);
+    let a = vec3<f32>(0.055);
+    let higher = (1.0 + a) * pow(c_clamped, vec3<f32>(1.0 / 2.4)) - a;
+    let lower = c_clamped * 12.92;
+    return select(higher, lower, c_clamped <= cutoff);
+}
+
+// --- HSV/RGB Conversion ---
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
     let c_max = max(c.r, max(c.g, c.b));
     let c_min = min(c.r, min(c.g, c.b));
@@ -129,6 +148,7 @@ fn interpolate_curve_segment(x: f32, p1: Point, p2: Point) -> f32 {
     return clamp(result_y / 255.0, 0.0, 1.0);
 }
 
+// This function expects sRGB (0-1) input and returns sRGB (0-1) output
 fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
     if (count < 2u) {
         return val;
@@ -202,20 +222,20 @@ fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
     return clamp(points[1].y / 255.0, 0.0, 1.0);
 }
 
+// This function expects linear RGB input and returns linear RGB output
 fn apply_basic_adjustments(color: vec3<f32>, exp: f32, con: f32, hi: f32, sh: f32, wh: f32, bl: f32, sat: f32, temp: f32, tnt: f32, vib: f32) -> vec3<f32> {
     var rgb = color;
-    rgb += vec3<f32>(exp * 0.5);
-    let black_point = -bl;
-    let white_point = 1.0 - wh;
-    rgb = (rgb - vec3<f32>(black_point)) / max(white_point - black_point, 0.001);
+    rgb *= pow(2.0, exp); // Exposure in stops
+    let black_point = bl;
+    let white_point = 1.0 + wh;
+    rgb = (rgb - black_point) / max(white_point - black_point, 0.001);
     let luma = dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
     let shadow_mix = 1.0 - smoothstep(0.0, 0.5, luma);
     let highlight_mix = smoothstep(0.5, 1.0, luma);
-    rgb += vec3<f32>(sh * shadow_mix);
-    rgb += vec3<f32>(hi * highlight_mix);
+    rgb += sh * shadow_mix;
+    rgb += hi * highlight_mix;
     rgb = 0.5 + (rgb - 0.5) * (1.0 + con);
-    rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-    let wb_multiplier = vec3<f32>(1.0 + temp, 1.0 - tnt, 1.0 - temp);
+    let wb_multiplier = vec3<f32>(1.0 + temp + tnt, 1.0, 1.0 - temp + tnt);
     rgb *= wb_multiplier;
     var hsv = rgb_to_hsv(rgb);
     if (hsv.y > 0.001) {
@@ -278,14 +298,18 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let original_pixel_coords = cropped_coords + crop_offset;
 
     var color = textureLoad(input_texture, pixel_coords_i, 0);
-    var processed_rgb = color.rgb;
+    
+    // Convert from sRGB to Linear for physically correct adjustments
+    var processed_rgb = srgb_to_linear(color.rgb);
 
+    // Apply basic adjustments in linear space
     processed_rgb = apply_basic_adjustments(processed_rgb,
         adjustments.global.exposure, adjustments.global.contrast, adjustments.global.highlights, adjustments.global.shadows,
         adjustments.global.whites, adjustments.global.blacks, adjustments.global.saturation, adjustments.global.temperature,
         adjustments.global.tint, adjustments.global.vibrance
     );
 
+    // Apply HSL adjustments in linear space (via HSV conversion)
     var hsv = rgb_to_hsv(processed_rgb);
     if (hsv.y > 0.01) {
         var total_hue_shift: f32 = 0.0;
@@ -359,17 +383,23 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     processed_rgb = hsv_to_rgb(hsv);
 
-    var luma_adjusted_rgb = vec3<f32>(
-        apply_curve(processed_rgb.r, adjustments.global.luma_curve, adjustments.global.luma_curve_count),
-        apply_curve(processed_rgb.g, adjustments.global.luma_curve, adjustments.global.luma_curve_count),
-        apply_curve(processed_rgb.b, adjustments.global.luma_curve, adjustments.global.luma_curve_count)
+    let srgb_for_curves = linear_to_srgb(processed_rgb);
+
+    // Apply curves in sRGB space
+    var luma_adjusted_srgb = vec3<f32>(
+        apply_curve(srgb_for_curves.r, adjustments.global.luma_curve, adjustments.global.luma_curve_count),
+        apply_curve(srgb_for_curves.g, adjustments.global.luma_curve, adjustments.global.luma_curve_count),
+        apply_curve(srgb_for_curves.b, adjustments.global.luma_curve, adjustments.global.luma_curve_count)
     );
-    processed_rgb = vec3<f32>(
-        apply_curve(luma_adjusted_rgb.r, adjustments.global.red_curve, adjustments.global.red_curve_count),
-        apply_curve(luma_adjusted_rgb.g, adjustments.global.green_curve, adjustments.global.green_curve_count),
-        apply_curve(luma_adjusted_rgb.b, adjustments.global.blue_curve, adjustments.global.blue_curve_count)
+    let curved_srgb = vec3<f32>(
+        apply_curve(luma_adjusted_srgb.r, adjustments.global.red_curve, adjustments.global.red_curve_count),
+        apply_curve(luma_adjusted_srgb.g, adjustments.global.green_curve, adjustments.global.green_curve_count),
+        apply_curve(luma_adjusted_srgb.b, adjustments.global.blue_curve, adjustments.global.blue_curve_count)
     );
 
+    processed_rgb = srgb_to_linear(curved_srgb);
+
+    // Apply masks in linear space
     for (var i = 0u; i < 16u; i = i + 1u) {
         if (i >= adjustments.mask_count) {
             break;
@@ -397,5 +427,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
 
-    textureStore(output_texture, pixel_coords_i, clamp(vec4<f32>(processed_rgb, color.a), vec4<f32>(0.0), vec4<f32>(1.0)));
+    // 8. Convert final linear result back to sRGB for storing/display
+    let final_rgb = linear_to_srgb(processed_rgb);
+
+    textureStore(output_texture, pixel_coords_i, vec4<f32>(final_rgb, color.a));
 }

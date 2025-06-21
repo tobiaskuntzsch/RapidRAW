@@ -138,12 +138,6 @@ fn downscale_and_demosaic_4x4(
 // #############################################################################
 
 pub fn develop_raw_thumbnail(file_bytes: &[u8]) -> Result<DynamicImage> {
-    // --- Configuration ---
-    let exposure_compensation = 4.5; 
-    let contrast_factor = 1.6;
-    let saturation_factor = 1.3;
-
-    // --- Load and Extract Metadata ---
     let raw_image = rawloader::decode(&mut Cursor::new(file_bytes))?;
 
     let raw_width = raw_image.width as u32;
@@ -186,13 +180,11 @@ pub fn develop_raw_thumbnail(file_bytes: &[u8]) -> Result<DynamicImage> {
         }
     }
 
-    // --- Now, move the data vector out of the struct ---
     let data = match raw_image.data {
         RawImageData::Integer(d) => d,
         _ => return Err(anyhow::anyhow!("Only integer-based RAW data is supported.")),
     };
 
-    // --- Demosaic and Post-Process ---
     let fast_preview_buffer = downscale_and_demosaic_4x4(&data, raw_width, crop_left, crop_top, final_width, final_height, bayer_pattern);
     let (new_width, new_height) = fast_preview_buffer.dimensions();
     let mut final_image_buffer = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(new_width, new_height);
@@ -201,7 +193,6 @@ pub fn develop_raw_thumbnail(file_bytes: &[u8]) -> Result<DynamicImage> {
         let (r, g, b) = post_process_pixel(
             pixel[0], pixel[1], pixel[2], 
             &black_levels, &dynamic_ranges, &final_wb_coeffs, &cam_to_srgb,
-            exposure_compensation, contrast_factor, saturation_factor,
         );
         final_image_buffer.put_pixel(x, y, Rgb([r, g, b]));
     }
@@ -210,11 +201,6 @@ pub fn develop_raw_thumbnail(file_bytes: &[u8]) -> Result<DynamicImage> {
 }
 
 pub fn develop_raw_fast_preview(file_bytes: &[u8]) -> Result<DynamicImage> {
-    // --- Configuration ---
-    let exposure_compensation = 4.5; 
-    let contrast_factor = 1.6;
-    let saturation_factor = 1.3;
-
     // --- Load and Extract Metadata ---
     let raw_image = rawloader::decode(&mut Cursor::new(file_bytes))?;
 
@@ -273,7 +259,6 @@ pub fn develop_raw_fast_preview(file_bytes: &[u8]) -> Result<DynamicImage> {
         let (r, g, b) = post_process_pixel(
             pixel[0], pixel[1], pixel[2], 
             &black_levels, &dynamic_ranges, &final_wb_coeffs, &cam_to_srgb,
-            exposure_compensation, contrast_factor, saturation_factor,
         );
         final_image_buffer.put_pixel(x, y, Rgb([r, g, b]));
     }
@@ -285,13 +270,8 @@ pub fn develop_raw_image(
     file_bytes: &[u8],
     algorithm: DemosaicAlgorithm,
 ) -> Result<DynamicImage, String> {
-    // --- Configuration ---
-    let exposure_compensation = 4.5; 
-    let contrast_factor = 1.6;
-    let saturation_factor = 1.3;
     let use_menon_refining_step = true;
 
-    // --- Load and Extract Metadata ---
     let raw_image = rawloader::decode(&mut Cursor::new(file_bytes))
         .map_err(|e| format!("Failed to decode RAW file: {}", e))?;
 
@@ -335,13 +315,11 @@ pub fn develop_raw_image(
         }
     }
 
-    // --- Now, move the data vector out of the struct ---
     let data = match raw_image.data {
         RawImageData::Integer(d) => d,
         _ => return Err("Only integer-based RAW data is supported.".to_string()),
     };
 
-    // --- Demosaic and Post-Process ---
     let mut img_buffer: RgbImage = ImageBuffer::new(final_width, final_height);
 
     match algorithm {
@@ -356,7 +334,6 @@ pub fn develop_raw_image(
                     let (r_final, g_final, b_final) = post_process_pixel(
                         r_raw, g_raw, b_raw, 
                         &black_levels, &dynamic_ranges, &final_wb_coeffs, &cam_to_srgb,
-                        exposure_compensation, contrast_factor, saturation_factor,
                     );
                     
                     let base = (x_out * 3) as usize;
@@ -379,7 +356,6 @@ pub fn develop_raw_image(
                     let (r_final, g_final, b_final) = post_process_pixel(
                         rgb_f32_data[idx_in], rgb_f32_data[idx_in + 1], rgb_f32_data[idx_in + 2], 
                         &black_levels, &dynamic_ranges, &final_wb_coeffs, &cam_to_srgb,
-                        exposure_compensation, contrast_factor, saturation_factor,
                     );
                     
                     let base = (x_out * 3) as usize;
@@ -398,16 +374,12 @@ pub fn develop_raw_image(
 // CORE ALGORITHMS AND HELPERS
 // #############################################################################
 
-/// Final post-processing function with exposure, contrast, and saturation controls.
 fn post_process_pixel(
     r_raw: f32, g_raw: f32, b_raw: f32,
     black_levels: &[f32; 3],
     dynamic_ranges: &[f32; 3],
     wb_coeffs: &[f32; 3],
     cam_to_srgb: &[[f32; 3]; 3],
-    exposure: f32,
-    contrast: f32,
-    saturation: f32,
 ) -> (u8, u8, u8) {
     // 1. Black level subtraction and normalization (per-channel)
     let r_norm = ((r_raw - black_levels[0]) / dynamic_ranges[0]).max(0.0);
@@ -419,93 +391,29 @@ fn post_process_pixel(
     let g_wb = g_norm * wb_coeffs[1];
     let b_wb = b_norm * wb_coeffs[2];
 
-    // 3. Color space conversion (Camera Native -> sRGB)
+    // 3. Color space conversion (Camera Native -> Linear sRGB)
     let r_srgb = r_wb * cam_to_srgb[0][0] + g_wb * cam_to_srgb[0][1] + b_wb * cam_to_srgb[0][2];
     let g_srgb = r_wb * cam_to_srgb[1][0] + g_wb * cam_to_srgb[1][1] + b_wb * cam_to_srgb[1][2];
     let b_srgb = r_wb * cam_to_srgb[2][0] + g_wb * cam_to_srgb[2][1] + b_wb * cam_to_srgb[2][2];
 
-    // 4. Exposure compensation
-    let r_exp = (r_srgb * exposure).max(0.0);
-    let g_exp = (g_srgb * exposure).max(0.0);
-    let b_exp = (b_srgb * exposure).max(0.0);
-
-    // 5. Contrast (S-curve)
-    fn apply_s_curve(val: f32, contrast_factor: f32) -> f32 {
-        let x = val.clamp(0.0, 1.0);
-        // A simple smoothstep curve
-        let s_curve = x * x * (3.0 - 2.0 * x);
-        // Linearly interpolate between original and curved value
-        let amount = (contrast_factor - 1.0).clamp(0.0, 1.0); 
-        x * (1.0 - amount) + s_curve * amount
+    // 4. Gamma correction (Linear -> sRGB)
+    fn linear_to_srgb_channel(c: f32) -> f32 {
+        let c_clamped = c.clamp(0.0, 1.0);
+        if c_clamped <= 0.0031308 {
+            c_clamped * 12.92
+        } else {
+            1.055 * c_clamped.powf(1.0 / 2.4) - 0.055
+        }
     }
-    let r_con = apply_s_curve(r_exp, contrast);
-    let g_con = apply_s_curve(g_exp, contrast);
-    let b_con = apply_s_curve(b_exp, contrast);
+    let r_gamma = linear_to_srgb_channel(r_srgb);
+    let g_gamma = linear_to_srgb_channel(g_srgb);
+    let b_gamma = linear_to_srgb_channel(b_srgb);
 
-    // 6. Saturation
-    let (r_sat, g_sat, b_sat) = if saturation != 1.0 {
-        let (h, s, l) = rgb_to_hsl(r_con, g_con, b_con);
-        let new_s = (s * saturation).clamp(0.0, 1.0);
-        hsl_to_rgb(h, new_s, l)
-    } else {
-        (r_con, g_con, b_con)
-    };
-
-    // 7. Gamma correction
-    let r_gamma = r_sat.clamp(0.0, 1.0).powf(1.0 / 2.2);
-    let g_gamma = g_sat.clamp(0.0, 1.0).powf(1.0 / 2.2);
-    let b_gamma = b_sat.clamp(0.0, 1.0).powf(1.0 / 2.2);
-
-    // 8. Convert to u8
+    // 5. Convert to u8
     (
-        (r_gamma * 255.0) as u8,
-        (g_gamma * 255.0) as u8,
-        (b_gamma * 255.0) as u8,
-    )
-}
-
-// --- HSL <-> RGB Conversion Helpers ---
-
-fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-    let max = r.max(g.max(b));
-    let min = r.min(g.min(b));
-    let mut h = 0.0;
-    let mut s;
-    let l = (max + min) / 2.0;
-
-    if (max - min).abs() < 1e-6 {
-        s = 0.0;
-    } else {
-        let d = max - min;
-        s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
-        h = match max {
-            _ if (max - r).abs() < 1e-6 => (g - b) / d + (if g < b { 6.0 } else { 0.0 }),
-            _ if (max - g).abs() < 1e-6 => (b - r) / d + 2.0,
-            _ => (r - g) / d + 4.0,
-        };
-        h /= 6.0;
-    }
-    (h, s, l)
-}
-
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
-    if s == 0.0 { return (l, l, l); }
-    
-    fn hue_to_rgb(p: f32, q: f32, mut t: f32) -> f32 {
-        if t < 0.0 { t += 1.0; }
-        if t > 1.0 { t -= 1.0; }
-        if t < 1.0/6.0 { return p + (q - p) * 6.0 * t; }
-        if t < 1.0/2.0 { return q; }
-        if t < 2.0/3.0 { return p + (q - p) * (2.0/3.0 - t) * 6.0; }
-        p
-    }
-
-    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
-    let p = 2.0 * l - q;
-    (
-        hue_to_rgb(p, q, h + 1.0/3.0),
-        hue_to_rgb(p, q, h),
-        hue_to_rgb(p, q, h - 1.0/3.0),
+        (r_gamma * 255.0).round() as u8,
+        (g_gamma * 255.0).round() as u8,
+        (b_gamma * 255.0).round() as u8,
     )
 }
 

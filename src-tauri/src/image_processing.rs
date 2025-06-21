@@ -4,7 +4,7 @@ use image::{DynamicImage, GenericImageView};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AppState};
+use crate::{AppState, LoadedImage};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageMetadata {
@@ -214,8 +214,7 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
     let mut mask_count = 0;
 
     let crop_data: Option<Crop> = js_adjustments.get("crop").and_then(|c| serde_json::from_value(c.clone()).ok());
-    let (crop_x, crop_y) = crop_data.map_or((0.0, 0.0), |c| (c.x, c.y));
-
+    let (crop_x_offset, crop_y_offset) = crop_data.map_or((0.0, 0.0), |c| (c.x, c.y));
 
     if let Some(js_masks) = js_adjustments.get("masks").and_then(|m| m.as_array()) {
         for (i, js_mask) in js_masks.iter().enumerate().take(16) {
@@ -229,19 +228,26 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
                 _ => 0,
             };
 
+            let center_x = geo["x"].as_f64().unwrap_or(0.0) as f32 + crop_x_offset as f32;
+            let center_y = geo["y"].as_f64().unwrap_or(0.0) as f32 + crop_y_offset as f32;
+            let start_x = geo["startX"].as_f64().unwrap_or(0.0) as f32 + crop_x_offset as f32;
+            let start_y = geo["startY"].as_f64().unwrap_or(0.0) as f32 + crop_y_offset as f32;
+            let end_x = geo["endX"].as_f64().unwrap_or(0.0) as f32 + crop_x_offset as f32;
+            let end_y = geo["endY"].as_f64().unwrap_or(0.0) as f32 + crop_y_offset as f32;
+
             masks[i] = Mask {
                 mask_type,
                 invert: if js_mask["invert"].as_bool().unwrap_or(false) { 1 } else { 0 },
                 feather: js_mask["feather"].as_f64().unwrap_or(0.5) as f32,
                 rotation: js_mask["rotation"].as_f64().unwrap_or(0.0) as f32,
-                center_x: geo["x"].as_f64().unwrap_or(0.0) as f32,
-                center_y: geo["y"].as_f64().unwrap_or(0.0) as f32,
+                center_x,
+                center_y,
                 radius_x: geo["radiusX"].as_f64().unwrap_or(0.0) as f32,
                 radius_y: geo["radiusY"].as_f64().unwrap_or(0.0) as f32,
-                start_x: geo["startX"].as_f64().unwrap_or(0.0) as f32,
-                start_y: geo["startY"].as_f64().unwrap_or(0.0) as f32,
-                end_x: geo["endX"].as_f64().unwrap_or(0.0) as f32,
-                end_y: geo["endY"].as_f64().unwrap_or(0.0) as f32,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
                 exposure: adj["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
                 contrast: adj["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
                 highlights: adj["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
@@ -262,8 +268,8 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
         global,
         masks,
         mask_count,
-        crop_x: crop_x.round() as u32,
-        crop_y: crop_y.round() as u32,
+        crop_x: crop_x_offset.round() as u32,
+        crop_y: crop_y_offset.round() as u32,
         preview_scale,
         tile_offset_x: 0,
         tile_offset_y: 0,
@@ -291,8 +297,9 @@ pub struct HistogramData {
 
 #[tauri::command]
 pub fn generate_histogram(state: tauri::State<AppState>) -> Result<HistogramData, String> {
-    let image = state.original_image.lock().unwrap().clone()
-        .ok_or("No image loaded to generate histogram")?;
+    let image = state.original_image.lock().unwrap().as_ref()
+        .ok_or("No image loaded to generate histogram")?
+        .image.clone();
 
     calculate_histogram_from_image(&image)
 }

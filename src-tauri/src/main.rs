@@ -20,7 +20,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::image_processing::{
     get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
-    ImageMetadata, apply_crop, AllAdjustments, process_and_get_dynamic_image,
+    ImageMetadata, AllAdjustments, process_and_get_dynamic_image,
 };
 use crate::file_management::get_sidecar_path;
 use crate::raw_processing::DemosaicAlgorithm;
@@ -31,8 +31,18 @@ pub struct PreviewCache {
     cropped_image: DynamicImage,
 }
 
+// New struct to hold the working image (which might be a preview)
+// along with its original full-resolution dimensions.
+#[derive(Clone)]
+pub struct LoadedImage {
+    image: DynamicImage,
+    full_width: u32,
+    full_height: u32,
+}
+
 pub struct AppState {
-    original_image: Mutex<Option<DynamicImage>>,
+    // AppState now holds the LoadedImage struct.
+    original_image: Mutex<Option<LoadedImage>>,
     raw_file_bytes: Mutex<Option<Vec<u8>>>,
     gpu_context: Mutex<Option<GpuContext>>,
     preview_cache: Mutex<Option<PreviewCache>>,
@@ -124,7 +134,12 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
     let display_preview = img.thumbnail(DISPLAY_PREVIEW_DIM, DISPLAY_PREVIEW_DIM);
     let original_base64 = encode_to_base64(&display_preview, 85)?;
 
-    *state.original_image.lock().unwrap() = Some(img);
+    *state.original_image.lock().unwrap() = Some(LoadedImage {
+        image: img,
+        full_width: orig_width,
+        full_height: orig_height,
+    });
+
     *state.preview_cache.lock().unwrap() = None;
 
     let sidecar_path = get_sidecar_path(&path);
@@ -177,12 +192,30 @@ fn apply_adjustments(
         None => false,
     };
 
-    let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+    let loaded_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+    let original_image = loaded_image.image;
+    let (full_w, full_h) = (loaded_image.full_width, loaded_image.full_height);
 
     let cropped_image_base = if cache_is_valid {
         cache_lock.as_ref().unwrap().cropped_image.clone()
     } else {
-        let new_cropped_image = apply_crop(original_image.clone(), current_crop_value);
+        let (preview_w, preview_h) = original_image.dimensions();
+        let crop_scale_x = preview_w as f32 / full_w as f32;
+        let crop_scale_y = preview_h as f32 / full_h as f32;
+
+        let original_crop = serde_json::from_value::<image_processing::Crop>(current_crop_value.clone())
+            .unwrap_or(image_processing::Crop {
+                x: 0.0, y: 0.0, width: full_w as f64, height: full_h as f64,
+            });
+
+        let preview_crop_x = (original_crop.x as f32 * crop_scale_x).round() as u32;
+        let preview_crop_y = (original_crop.y as f32 * crop_scale_y).round() as u32;
+        let preview_crop_w = (original_crop.width as f32 * crop_scale_x).round() as u32;
+        let preview_crop_h = (original_crop.height as f32 * crop_scale_y).round() as u32;
+
+        let new_cropped_image = original_image.crop_imm(
+            preview_crop_x, preview_crop_y, preview_crop_w, preview_crop_h
+        );
 
         *cache_lock = Some(PreviewCache {
             crop_value: current_crop_value.clone(),
@@ -200,7 +233,14 @@ fn apply_adjustments(
         let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
         let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
         
-        let final_scale = if cropped_w > 0 { (final_preview_base.width() as f32 / cropped_w as f32).min(1.0) } else { 1.0 };
+        let original_crop_width = js_adjustments["crop"]["width"].as_f64().unwrap_or(full_w as f64) as u32;
+
+        let final_scale = if original_crop_width > 0 {
+            (final_preview_base.width() as f32 / original_crop_width as f32).min(1.0)
+        } else {
+            1.0
+        };
+        
         let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
 
         if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
@@ -230,16 +270,17 @@ fn generate_uncropped_preview(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let context = get_or_init_gpu_context(&state)?;
-    let original_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+    let loaded_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
+    let original_image = loaded_image.image;
+    let (full_w, _full_h) = (loaded_image.full_width, loaded_image.full_height);
 
     thread::spawn(move || {
         const UNCROPPED_PREVIEW_DIM: u32 = 2160;
-        let (orig_w, _orig_h) = original_image.dimensions();
         
-        let uncropped_target_dim = orig_w.min(UNCROPPED_PREVIEW_DIM);
+        let uncropped_target_dim = original_image.width().min(UNCROPPED_PREVIEW_DIM);
         let uncropped_preview_base = original_image.thumbnail(uncropped_target_dim, uncropped_target_dim);
 
-        let uncropped_scale = if orig_w > 0 { (uncropped_preview_base.width() as f32 / orig_w as f32).min(1.0) } else { 1.0 };
+        let uncropped_scale = if full_w > 0 { (uncropped_preview_base.width() as f32 / full_w as f32).min(1.0) } else { 1.0 };
         let uncropped_adjustments = get_all_adjustments_from_json(&js_adjustments, uncropped_scale);
 
         if let Ok(base64_str) = process_image_for_preview(&context, &uncropped_preview_base, uncropped_adjustments, 85) {
@@ -263,11 +304,11 @@ fn generate_fullscreen_preview(
             raw_processing::develop_raw_image(bytes, raw_processing::DemosaicAlgorithm::Linear)?
         } else {
             let original_image_lock = state.original_image.lock().unwrap();
-            original_image_lock.clone().ok_or("No original image loaded")?
+            original_image_lock.as_ref().ok_or("No original image loaded")?.image.clone()
         }
     };
 
-    let cropped_image = apply_crop(base_image, &js_adjustments["crop"]);
+    let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
 
     let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
@@ -293,11 +334,11 @@ fn export_image(
             raw_processing::develop_raw_image(bytes, quality)?
         } else {
             let original_image_lock = state.original_image.lock().unwrap();
-            original_image_lock.clone().ok_or("No original image loaded")?
+            original_image_lock.as_ref().ok_or("No original image loaded")?.image.clone()
         }
     };
 
-    let cropped_image = apply_crop(base_image, &js_adjustments["crop"]);
+    let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
 
     let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
@@ -500,17 +541,21 @@ fn generate_preset_preview(
 ) -> Result<String, String> {
     let context = get_or_init_gpu_context(&state)?;
 
-    let original_image = state.original_image.lock().unwrap().clone()
+    let loaded_image = state.original_image.lock().unwrap().clone()
         .ok_or("No original image loaded for preset preview")?;
+    let original_image = loaded_image.image;
+    let (full_w, _full_h) = (loaded_image.full_width, loaded_image.full_height);
     
-    let cropped_image = apply_crop(original_image, &js_adjustments["crop"]);
+    let cropped_image = image_processing::apply_crop(original_image, &js_adjustments["crop"]);
     let (cropped_w, _cropped_h) = cropped_image.dimensions();
 
     const PRESET_PREVIEW_DIM: u32 = 200;
     let preview_base = cropped_image.thumbnail(PRESET_PREVIEW_DIM, PRESET_PREVIEW_DIM);
 
-    let scale = if cropped_w > 0 {
-        (preview_base.width() as f32 / cropped_w as f32).min(1.0)
+    let original_crop_width = js_adjustments["crop"]["width"].as_f64().unwrap_or(full_w as f64) as u32;
+
+    let scale = if original_crop_width > 0 {
+        (preview_base.width() as f32 / original_crop_width as f32).min(1.0)
     } else {
         1.0
     };

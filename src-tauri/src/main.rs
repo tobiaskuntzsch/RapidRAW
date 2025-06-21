@@ -31,8 +31,6 @@ pub struct PreviewCache {
     cropped_image: DynamicImage,
 }
 
-// New struct to hold the working image (which might be a preview)
-// along with its original full-resolution dimensions.
 #[derive(Clone)]
 pub struct LoadedImage {
     image: DynamicImage,
@@ -41,7 +39,6 @@ pub struct LoadedImage {
 }
 
 pub struct AppState {
-    // AppState now holds the LoadedImage struct.
     original_image: Mutex<Option<LoadedImage>>,
     raw_file_bytes: Mutex<Option<Vec<u8>>>,
     gpu_context: Mutex<Option<GpuContext>>,

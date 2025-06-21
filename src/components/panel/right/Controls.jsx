@@ -2,6 +2,8 @@ import { RotateCcw } from 'lucide-react';
 import BasicAdjustments from '../../adjustments/BasicAdjustments';
 import CurveGraph from '../../adjustments/CurveGraph';
 import ColorPanel from '../../adjustments/ColorPanel';
+import DetailsPanel from '../../adjustments/DetailsPanel';
+import EffectsPanel from '../../adjustments/EffectsPanel';
 import CollapsibleSection from '../../ui/CollapsibleSection';
 import { INITIAL_ADJUSTMENTS } from '../../../App';
 
@@ -15,7 +17,9 @@ export default function Controls({
 }) {
 
   const handleResetAdjustments = () => {
-    setAdjustments(INITIAL_ADJUSTMENTS);
+    // Preserve rating when resetting
+    const currentRating = adjustments.rating;
+    setAdjustments({ ...INITIAL_ADJUSTMENTS, rating: currentRating });
   };
 
   const handleToggleSection = (section) => {
@@ -65,6 +69,24 @@ export default function Controls({
             onToggle={() => handleToggleSection('color')}
           >
             <ColorPanel adjustments={adjustments} setAdjustments={setAdjustments} />
+          </CollapsibleSection>
+        </div>
+        <div className="flex-shrink-0">
+          <CollapsibleSection
+            title="Details"
+            isOpen={collapsibleState.details}
+            onToggle={() => handleToggleSection('details')}
+          >
+            <DetailsPanel adjustments={adjustments} setAdjustments={setAdjustments} />
+          </CollapsibleSection>
+        </div>
+        <div className="flex-shrink-0">
+          <CollapsibleSection
+            title="Effects"
+            isOpen={collapsibleState.effects}
+            onToggle={() => handleToggleSection('effects')}
+          >
+            <EffectsPanel adjustments={adjustments} setAdjustments={setAdjustments} />
           </CollapsibleSection>
         </div>
       </div>

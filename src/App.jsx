@@ -29,18 +29,35 @@ export const INITIAL_MASK_ADJUSTMENTS = {
 
 export const INITIAL_ADJUSTMENTS = {
   rating: 0,
+  // Basic
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
   saturation: 0, temperature: 0, tint: 0, vibrance: 0,
+  // Details
+  sharpness: 0,
+  lumaNoiseReduction: 0,
+  colorNoiseReduction: 0,
+  // Effects
+  clarity: 0,
+  dehaze: 0,
+  structure: 0,
+  vignetteAmount: 0,
+  vignetteMidpoint: 50,
+  vignetteRoundness: 0,
+  vignetteFeather: 50,
+  grainAmount: 0,
+  // HSL
   hsl: {
     reds: { hue: 0, saturation: 0, luminance: 0 }, oranges: { hue: 0, saturation: 0, luminance: 0 },
     yellows: { hue: 0, saturation: 0, luminance: 0 }, greens: { hue: 0, saturation: 0, luminance: 0 },
     aquas: { hue: 0, saturation: 0, luminance: 0 }, blues: { hue: 0, saturation: 0, luminance: 0 },
     purples: { hue: 0, saturation: 0, luminance: 0 }, magentas: { hue: 0, saturation: 0, luminance: 0 },
   },
+  // Curves
   curves: {
     luma: [{ x: 0, y: 0 }, { x: 255, y: 255 }], red: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
     green: [{ x: 0, y: 0 }, { x: 255, y: 255 }], blue: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
   },
+  // Other
   crop: null,
   aspectRatio: null,
   rotation: 0,
@@ -94,6 +111,8 @@ function App() {
     basic: true,
     curves: true,
     color: false,
+    details: false,
+    effects: false,
   });
 
   const { thumbnails } = useThumbnails(imageList);

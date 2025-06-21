@@ -4,7 +4,7 @@ use image::{DynamicImage, GenericImageView};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AppState, LoadedImage};
+use crate::{AppState};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageMetadata {
@@ -86,8 +86,23 @@ pub struct GlobalAdjustments {
     pub temperature: f32,
     pub tint: f32,
     pub vibrance: f32,
-    _pad1: f32,
-    _pad2: f32,
+    
+    // New fields for Details and Effects
+    pub sharpness: f32,
+    pub luma_noise_reduction: f32,
+    pub color_noise_reduction: f32,
+    pub clarity: f32,
+    pub dehaze: f32,
+    pub structure: f32,
+    pub vignette_amount: f32,
+    pub vignette_midpoint: f32,
+    pub vignette_roundness: f32,
+    pub vignette_feather: f32,
+    pub grain_amount: f32,
+    pub grain_size: f32,
+    pub grain_roughness: f32,
+    _pad1: f32, // Padding to align HSL to a 16-byte boundary
+
     pub hsl: [HslColor; 8],
     pub luma_curve: [Point; 16],
     pub red_curve: [Point; 16],
@@ -194,8 +209,22 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
         saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32 / 100.0,
         temperature: js_adjustments["temperature"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         tint: js_adjustments["tint"].as_f64().unwrap_or(0.0) as f32 / 250.0,
-        vibrance: js_adjustments["vibrance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-        _pad1: 0.0, _pad2: 0.0,
+        vibrance: js_adjustments["vibrance"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        sharpness: js_adjustments["sharpness"].as_f64().unwrap_or(0.0) as f32 / 20.0,
+        luma_noise_reduction: js_adjustments["lumaNoiseReduction"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        color_noise_reduction: js_adjustments["colorNoiseReduction"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        clarity: js_adjustments["clarity"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        dehaze: js_adjustments["dehaze"].as_f64().unwrap_or(0.0) as f32 / 1000.0,
+        structure: js_adjustments["structure"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        vignette_amount: js_adjustments["vignetteAmount"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        vignette_midpoint: js_adjustments["vignetteMidpoint"].as_f64().unwrap_or(50.0) as f32 / 100.0,
+        vignette_roundness: js_adjustments["vignetteRoundness"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+        vignette_feather: js_adjustments["vignetteFeather"].as_f64().unwrap_or(50.0) as f32 / 100.0,
+        grain_amount: js_adjustments["grainAmount"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        grain_size: js_adjustments["grainSize"].as_f64().unwrap_or(50.0) as f32 / 50.0,
+        grain_roughness: js_adjustments["grainRoughness"].as_f64().unwrap_or(50.0) as f32 / 100.0,
+        _pad1: 0.0,
+
         hsl: parse_hsl_adjustments(&js_adjustments.get("hsl").cloned().unwrap_or_default()),
         luma_curve: convert_points_to_aligned(luma_points.clone()),
         red_curve: convert_points_to_aligned(red_points.clone()),

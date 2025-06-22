@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check } from 'lucide-react';
+import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check, Save } from 'lucide-react';
 import clsx from 'clsx';
 import Filmstrip from './Filmstrip';
 
@@ -45,6 +45,8 @@ export default function BottomBar({
   isLoading,
   onReset,
   isResetDisabled,
+  onExportClick,
+  isExportDisabled,
   isLibraryView = false,
 }) {
   const [isCopied, setIsCopied] = useState(false);
@@ -92,7 +94,7 @@ export default function BottomBar({
 
       <div className={clsx(
         "flex-shrink-0 h-10 flex items-center justify-between px-3",
-        isFilmstripVisible && "border-t border-surface"
+        !isLibraryView && isFilmstripVisible && "border-t border-surface"
       )}>
         <div className="flex items-center gap-4">
           <StarRating rating={rating} onRate={onRate} />
@@ -122,21 +124,29 @@ export default function BottomBar({
                 <ClipboardPaste size={18} />
               )}
             </button>
-
-            {isLibraryView && (
-              <button
-                onClick={onReset}
-                title="Reset All Adjustments"
-                disabled={isResetDisabled}
-                className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors disabled:text-bg-primary disabled:hover:bg-transparent disabled:cursor-not-allowed"
-              >
-                <RotateCcw size={18} />
-              </button>
-            )}
           </div>
         </div>
         
-        {!isLibraryView && (
+        {isLibraryView ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onReset}
+              title="Reset All Adjustments"
+              disabled={isResetDisabled}
+              className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors disabled:text-bg-primary disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            >
+              <RotateCcw size={18} />
+            </button>
+            <button
+              onClick={onExportClick}
+              title="Export Selected Images"
+              disabled={isExportDisabled}
+              className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors disabled:text-bg-primary disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            >
+              <Save size={18} />
+            </button>
+          </div>
+        ) : (
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 w-48">
               <span className="text-xs text-text-secondary">Zoom</span>

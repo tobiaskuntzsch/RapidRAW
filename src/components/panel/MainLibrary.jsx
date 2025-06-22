@@ -22,7 +22,7 @@ function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, i
   return (
     <div
       onClick={(e) => {
-        e.stopPropagation(); // Prevent click from bubbling to the library background
+        e.stopPropagation();
         onImageClick(path, e);
       }}
       onDoubleClick={() => onImageDoubleClick(path)}

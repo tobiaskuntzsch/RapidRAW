@@ -17,6 +17,7 @@ import CropPanel from './components/panel/right/CropPanel';
 import PresetsPanel from './components/panel/right/PresetsPanel';
 import AIPanel from './components/panel/right/AIPanel';
 import ExportPanel from './components/panel/right/ExportPanel';
+import LibraryExportPanel from './components/panel/right/LibraryExportPanel';
 import MasksPanel from './components/panel/right/MasksPanel';
 import BottomBar from './components/panel/BottomBar';
 import { ContextMenuProvider } from './context/ContextMenuContext';
@@ -74,6 +75,7 @@ function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
   );
 }
 
+
 function App() {
   const [rootPath, setRootPath] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
@@ -114,6 +116,8 @@ function App() {
     details: false,
     effects: false,
   });
+
+  const [isLibraryExportPanelVisible, setIsLibraryExportPanelVisible] = useState(false);
 
   const { thumbnails } = useThumbnails(imageList);
 
@@ -338,6 +342,7 @@ function App() {
     setFolderTree(null);
     setMultiSelectedPaths([]);
     setLibraryActivePath(null);
+    setIsLibraryExportPanelVisible(false);
   };
 
   const handleSelectSubfolder = async (path, isNewRoot = false) => {
@@ -482,6 +487,7 @@ function App() {
       transformWrapperRef.current.resetTransform(0);
     }
     setZoom(1);
+    setIsLibraryExportPanelVisible(false);
 
     try {
       const loadImageResult = await invoke('load_image', { path });
@@ -738,6 +744,7 @@ function App() {
                   <ExportPanel
                     selectedImage={selectedImage}
                     adjustments={adjustments}
+                    multiSelectedPaths={multiSelectedPaths}
                   />
                 )}
                 {renderedRightPanel === 'ai' && <AIPanel selectedImage={selectedImage} />}
@@ -793,6 +800,8 @@ function App() {
             isPasteDisabled={copiedAdjustments === null || multiSelectedPaths.length === 0}
             onReset={handleResetAdjustments}
             isResetDisabled={multiSelectedPaths.length === 0}
+            onExportClick={() => setIsLibraryExportPanelVisible(prev => !prev)}
+            isExportDisabled={multiSelectedPaths.length === 0}
           />}
         </div>
       </div>
@@ -812,7 +821,25 @@ function App() {
               <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
             </div>
           )}
-          {renderContent()}
+
+          <div className="flex flex-row flex-grow h-full min-h-0">
+            <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
+              {renderContent()}
+            </div>
+            
+            <div className={`
+              flex-shrink-0 
+              transition-all duration-300 ease-in-out 
+              overflow-hidden
+              ${isLibraryExportPanelVisible ? 'w-80 ml-2' : 'w-0'}
+            `}>
+              <LibraryExportPanel
+                isVisible={isLibraryExportPanelVisible}
+                onClose={() => setIsLibraryExportPanelVisible(false)}
+                multiSelectedPaths={multiSelectedPaths}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </ContextMenuProvider>

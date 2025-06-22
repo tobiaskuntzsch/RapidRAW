@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { save, open } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Save, CheckCircle, XCircle, Loader } from 'lucide-react';
+import { Save, CheckCircle, XCircle, Loader, X } from 'lucide-react';
 import Switch from '../../ui/Switch';
 
 const FILE_FORMATS = [
@@ -22,7 +22,7 @@ function Section({ title, children }) {
   );
 }
 
-export default function ExportPanel({ selectedImage, adjustments, multiSelectedPaths }) {
+export default function LibraryExportPanel({ multiSelectedPaths, onClose, isVisible }) {
   const [fileFormat, setFileFormat] = useState('jpeg');
   const [jpegQuality, setJpegQuality] = useState(90);
   const [enableResize, setEnableResize] = useState(false);
@@ -35,14 +35,8 @@ export default function ExportPanel({ selectedImage, adjustments, multiSelectedP
   const [errorMessage, setErrorMessage] = useState('');
   const [batchExportProgress, setBatchExportProgress] = useState(null);
 
-  const isEditorContext = !!selectedImage;
-  const pathsToExport = isEditorContext
-    ? (multiSelectedPaths.length > 0 ? multiSelectedPaths : (selectedImage ? [selectedImage.path] : []))
-    : multiSelectedPaths;
-  const numImages = pathsToExport.length;
-  const isBatchMode = numImages > 1;
-
-  const hasRawFileInSelection = pathsToExport.some(p =>
+  const numImages = multiSelectedPaths.length;
+  const hasRawFileInSelection = multiSelectedPaths.some(p =>
     /\.(arw|cr2|cr3|nef|dng|raf|orf|pef|rw2)$/i.test(p)
   );
 
@@ -59,16 +53,14 @@ export default function ExportPanel({ selectedImage, adjustments, multiSelectedP
     setExportStatus('idle');
     setErrorMessage('');
     setBatchExportProgress(null);
-  }, [selectedImage, multiSelectedPaths]);
+  }, [multiSelectedPaths, isVisible]);
 
-  const handleExportImage = async () => {
+  const handleExport = async () => {
     if (numImages === 0) return;
 
     setExportStatus('exporting');
     setErrorMessage('');
-    if (isBatchMode) {
-      setBatchExportProgress({ current: 0, total: numImages });
-    }
+    setBatchExportProgress({ current: 0, total: numImages });
 
     try {
       const exportSettings = {
@@ -80,55 +72,29 @@ export default function ExportPanel({ selectedImage, adjustments, multiSelectedP
         } : null,
       };
 
-      if (isBatchMode || !isEditorContext) {
-        const outputFolder = await open({
-          title: `Select Folder to Export ${numImages} Image(s)`,
-          directory: true,
+      const outputFolder = await open({
+        title: `Select Folder to Export ${numImages} Image(s)`,
+        directory: true,
+      });
+
+      if (outputFolder) {
+        await invoke('batch_export_images', {
+          outputFolder,
+          paths: multiSelectedPaths,
+          demosaicQuality: hasRawFileInSelection ? demosaicQuality : null,
+          exportSettings,
+          outputFormat: FILE_FORMATS.find(f => f.id === fileFormat).extensions[0],
         });
-
-        if (outputFolder) {
-          await invoke('batch_export_images', {
-            outputFolder,
-            paths: pathsToExport,
-            demosaicQuality: hasRawFileInSelection ? demosaicQuality : null,
-            exportSettings,
-            outputFormat: FILE_FORMATS.find(f => f.id === fileFormat).extensions[0],
-          });
-          setExportStatus('success');
-        } else {
-          setExportStatus('idle');
-        }
-      } else { // Single image export from the editor context
-        const selectedFormat = FILE_FORMATS.find(f => f.id === fileFormat);
-        const originalFilename = selectedImage.path.split(/[\\/]/).pop();
-        const [name] = originalFilename.split('.');
-
-        const filePath = await save({
-          title: "Save Edited Image",
-          defaultPath: `${name}_edited.${selectedFormat.extensions[0]}`,
-          filters: FILE_FORMATS.map(f => ({ name: f.name, extensions: f.extensions })),
-        });
-
-        if (filePath) {
-          await invoke('export_image', {
-            path: filePath,
-            jsAdjustments: adjustments,
-            demosaicQuality: selectedImage.isRaw ? demosaicQuality : null,
-            exportSettings: exportSettings,
-          });
-          setExportStatus('success');
-        } else {
-          setExportStatus('idle');
-        }
+        setExportStatus('success');
+      } else {
+        setExportStatus('idle');
       }
     } catch (error) {
-      console.error('Error exporting image:', error);
+      console.error('Error exporting images:', error);
       setErrorMessage(typeof error === 'string' ? error : 'An unknown error occurred.');
       setExportStatus('error');
     } finally {
-      if (isBatchMode) {
-        setTimeout(() => setBatchExportProgress(null), 4000);
-      }
+      setTimeout(() => setBatchExportProgress(null), 4000);
     }
 
     setTimeout(() => {
@@ -142,11 +108,14 @@ export default function ExportPanel({ selectedImage, adjustments, multiSelectedP
   const canExport = numImages > 0;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="h-full bg-bg-secondary rounded-lg flex flex-col">
       <div className="p-4 flex justify-between items-center flex-shrink-0 border-b border-surface">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">
-          Export {numImages > 1 ? `(${numImages})` : ''}
+        Export {numImages > 1 ? `(${numImages})` : ''}
         </h2>
+        <button onClick={onClose} className="p-1 rounded-md text-text-secondary hover:bg-surface hover:text-text-primary">
+          <X size={20} />
+        </button>
       </div>
       <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-6">
         {canExport ? (
@@ -243,13 +212,13 @@ export default function ExportPanel({ selectedImage, adjustments, multiSelectedP
             )}
           </>
         ) : (
-          <p className="text-center text-text-tertiary mt-4">No image selected for export.</p>
+          <p className="text-center text-text-tertiary mt-4">No images selected.</p>
         )}
       </div>
 
       <div className="p-4 border-t border-surface flex-shrink-0">
         <button
-          onClick={handleExportImage}
+          onClick={handleExport}
           disabled={!canExport || isExporting}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface text-white font-bold rounded-lg hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all"
         >

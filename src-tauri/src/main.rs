@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::fs;
 use std::collections::HashMap;
+use std::path::Path;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use tauri::{Manager, Emitter};
@@ -65,6 +66,29 @@ struct LoadImageResult {
     metadata: ImageMetadata,
     exif: HashMap<String, String>,
     is_raw: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+enum ResizeMode {
+    LongEdge,
+    Width,
+    Height,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ResizeOptions {
+    mode: ResizeMode,
+    value: u32,
+    dont_enlarge: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ExportSettings {
+    jpeg_quality: u8,
+    resize: Option<ResizeOptions>,
 }
 
 fn is_raw_file(path: &str) -> bool {
@@ -321,6 +345,7 @@ fn export_image(
     path: String,
     js_adjustments: Value,
     demosaic_quality: Option<DemosaicAlgorithm>,
+    export_settings: ExportSettings,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let context = get_or_init_gpu_context(&state)?;
@@ -337,15 +362,148 @@ fn export_image(
 
     let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
     let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
+    let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
 
-    let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
-    let (width, height) = cropped_image.dimensions();
-    let final_image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-        .ok_or("Failed to create final image buffer")?;
+    if let Some(resize_opts) = export_settings.resize {
+        let (current_w, current_h) = final_image.dimensions();
 
-    final_image.save(&path).map_err(|e| e.to_string())?;
+        let should_resize = if resize_opts.dont_enlarge {
+            match resize_opts.mode {
+                ResizeMode::LongEdge => current_w.max(current_h) > resize_opts.value,
+                ResizeMode::Width => current_w > resize_opts.value,
+                ResizeMode::Height => current_h > resize_opts.value,
+            }
+        } else {
+            true
+        };
+
+        if should_resize {
+            final_image = match resize_opts.mode {
+                ResizeMode::LongEdge => {
+                    let (w, h) = if current_w > current_h {
+                        (resize_opts.value, (resize_opts.value as f32 * (current_h as f32 / current_w as f32)).round() as u32)
+                    } else {
+                        ((resize_opts.value as f32 * (current_w as f32 / current_h as f32)).round() as u32, resize_opts.value)
+                    };
+                    final_image.thumbnail(w, h)
+                },
+                ResizeMode::Width => final_image.thumbnail(resize_opts.value, u32::MAX),
+                ResizeMode::Height => final_image.thumbnail(u32::MAX, resize_opts.value),
+            };
+        }
+    }
+
+    let output_path = std::path::Path::new(&path);
+    let extension = output_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+
+    let format = match extension.as_str() {
+        "jpg" | "jpeg" => image::ImageOutputFormat::Jpeg(export_settings.jpeg_quality),
+        "png" => image::ImageOutputFormat::Png,
+        "tiff" => image::ImageOutputFormat::Tiff,
+        _ => return Err(format!("Unsupported file extension: {}", extension)),
+    };
+
+    let mut file = fs::File::create(&path).map_err(|e| e.to_string())?;
+    final_image.write_to(&mut file, format).map_err(|e| e.to_string())?;
+
     Ok(())
 }
+
+#[tauri::command]
+fn batch_export_images(
+    output_folder: String,
+    paths: Vec<String>,
+    demosaic_quality: Option<DemosaicAlgorithm>,
+    export_settings: ExportSettings,
+    output_format: String,
+    state: tauri::State<AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let context = get_or_init_gpu_context(&state)?;
+    let output_folder_path = Path::new(&output_folder);
+
+    for (i, image_path_str) in paths.iter().enumerate() {
+        let _ = app_handle.emit("batch-export-progress", serde_json::json!({ "current": i, "total": paths.len(), "path": image_path_str }));
+
+        let processing_result: Result<(), String> = (|| {
+            // Load base image
+            let file_bytes = fs::read(image_path_str).map_err(|e| e.to_string())?;
+            let base_image = if is_raw_file(image_path_str) {
+                raw_processing::develop_raw_image(&file_bytes, demosaic_quality.clone().unwrap_or(DemosaicAlgorithm::Menon))?
+            } else {
+                image::load_from_memory(&file_bytes).map_err(|e| e.to_string())?
+            };
+
+            // Load adjustments from sidecar
+            let sidecar_path = get_sidecar_path(image_path_str);
+            let metadata: ImageMetadata = if sidecar_path.exists() {
+                let file_content = fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
+                serde_json::from_str(&file_content).unwrap_or_default()
+            } else {
+                ImageMetadata::default()
+            };
+            let js_adjustments = metadata.adjustments;
+
+            // Process image
+            let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
+            let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
+            let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
+
+            // Apply resize
+            if let Some(resize_opts) = &export_settings.resize {
+                let (current_w, current_h) = final_image.dimensions();
+                let should_resize = if resize_opts.dont_enlarge {
+                    match resize_opts.mode {
+                        ResizeMode::LongEdge => current_w.max(current_h) > resize_opts.value,
+                        ResizeMode::Width => current_w > resize_opts.value,
+                        ResizeMode::Height => current_h > resize_opts.value,
+                    }
+                } else { true };
+
+                if should_resize {
+                    final_image = match resize_opts.mode {
+                        ResizeMode::LongEdge => {
+                            let (w, h) = if current_w > current_h {
+                                (resize_opts.value, (resize_opts.value as f32 * (current_h as f32 / current_w as f32)).round() as u32)
+                            } else {
+                                ((resize_opts.value as f32 * (current_w as f32 / current_h as f32)).round() as u32, resize_opts.value)
+                            };
+                            final_image.thumbnail(w, h)
+                        },
+                        ResizeMode::Width => final_image.thumbnail(resize_opts.value, u32::MAX),
+                        ResizeMode::Height => final_image.thumbnail(u32::MAX, resize_opts.value),
+                    };
+                }
+            }
+
+            // Save file
+            let original_path = Path::new(image_path_str);
+            let original_stem = original_path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+            let new_filename = format!("{}_edited.{}", original_stem, output_format);
+            let output_path = output_folder_path.join(new_filename);
+
+            let format = match output_format.as_str() {
+                "jpg" | "jpeg" => image::ImageOutputFormat::Jpeg(export_settings.jpeg_quality),
+                "png" => image::ImageOutputFormat::Png,
+                "tiff" => image::ImageOutputFormat::Tiff,
+                _ => return Err(format!("Unsupported file format: {}", output_format)),
+            };
+
+            let mut file = fs::File::create(&output_path).map_err(|e| e.to_string())?;
+            final_image.write_to(&mut file, format).map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+
+        if let Err(e) = processing_result {
+            // Log error but continue with the rest of the batch
+            eprintln!("Failed to export {}: {}", image_path_str, e);
+        }
+    }
+
+    let _ = app_handle.emit("batch-export-progress", serde_json::json!({ "current": paths.len(), "total": paths.len(), "path": "" }));
+    Ok(())
+}
+
 
 #[tauri::command]
 fn save_metadata_and_update_thumbnail(
@@ -591,6 +749,7 @@ fn main() {
             load_image,
             apply_adjustments,
             export_image,
+            batch_export_images, // <-- ADDED
             generate_fullscreen_preview,
             save_metadata_and_update_thumbnail,
             apply_adjustments_to_paths,

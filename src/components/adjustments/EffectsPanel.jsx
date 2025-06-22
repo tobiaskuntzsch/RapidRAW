@@ -20,7 +20,7 @@ export default function EffectsPanel({ adjustments, setAdjustments }) {
           label="Dehaze"
           value={adjustments.dehaze}
           onChange={(e) => handleAdjustmentChange('dehaze', e.target.value)}
-          min="0" max="100" step="1"
+          min="-100" max="100" step="1"
         />
          <Slider
           label="Structure"

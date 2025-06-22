@@ -203,7 +203,7 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
         exposure: js_adjustments["exposure"].as_f64().unwrap_or(0.0) as f32 / 25.0,
         contrast: js_adjustments["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         highlights: js_adjustments["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-        shadows: js_adjustments["shadows"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+        shadows: js_adjustments["shadows"].as_f64().unwrap_or(0.0) as f32 / 500.0,
         whites: js_adjustments["whites"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         blacks: js_adjustments["blacks"].as_f64().unwrap_or(0.0) as f32 / 200.0,
         saturation: js_adjustments["saturation"].as_f64().unwrap_or(0.0) as f32 / 100.0,

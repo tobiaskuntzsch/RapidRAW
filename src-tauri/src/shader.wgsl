@@ -259,23 +259,24 @@ fn get_luma(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-// Fixed clarity/structure implementation - working in sRGB space for proper results
+// Fixed clarity/structure implementation - enhances detail while controlling brightness changes
 fn apply_local_contrast(processed_color: vec3<f32>, coords: vec2<i32>, radius: i32, amount: f32) -> vec3<f32> {
     if (amount == 0.0) { return processed_color; }
 
     let max_coords = vec2<i32>(textureDimensions(input_texture) - 1u);
     
-    // Convert to sRGB for the blur operation - this is key!
-    let processed_srgb = linear_to_srgb(processed_color);
+    // Work in linear space for proper light calculations
+    let original_linear = processed_color;
+    let original_luma = dot(original_linear, vec3<f32>(0.2126, 0.7152, 0.0722));
     
     // Calculate blur parameters
     let blur_range = radius;
     let sample_step = max(1, blur_range / 8);
     
-    var blurred_srgb = vec3<f32>(0.0);
+    var blurred_linear = vec3<f32>(0.0);
     var total_weight = 0.0;
     
-    // Proper Gaussian blur in sRGB space
+    // Gaussian blur in linear space
     let sigma = f32(blur_range) * 0.4;
     let sigma_sq = sigma * sigma;
     
@@ -284,47 +285,68 @@ fn apply_local_contrast(processed_color: vec3<f32>, coords: vec2<i32>, radius: i
             let offset = vec2<i32>(x, y);
             let sample_coords = clamp(coords + offset, vec2<i32>(0), max_coords);
             let sample_srgb = textureLoad(input_texture, sample_coords, 0).rgb;
-            // Keep in sRGB space for blur
+            let sample_linear = srgb_to_linear(sample_srgb);
             
             let dist_sq = f32(x * x + y * y);
             let weight = exp(-dist_sq / (2.0 * sigma_sq));
             
-            blurred_srgb += sample_srgb * weight;
+            blurred_linear += sample_linear * weight;
             total_weight += weight;
         }
     }
     
     if (total_weight > 0.0) {
-        blurred_srgb /= total_weight;
+        blurred_linear /= total_weight;
     } else {
-        blurred_srgb = processed_srgb;
+        blurred_linear = original_linear;
     }
     
-    // Calculate detail in sRGB space
-    let detail_srgb = processed_srgb - blurred_srgb;
+    // Calculate high-frequency detail
+    let detail_linear = original_linear - blurred_linear;
     
-    // Create midtone mask using sRGB luminance
-    let processed_luma_srgb = dot(processed_srgb, vec3<f32>(0.299, 0.587, 0.114));
-    let shadow_protection = smoothstep(0.0, 0.25, processed_luma_srgb);
-    let highlight_protection = 1.0 - smoothstep(0.75, 1.0, processed_luma_srgb);
+    // Create progressive masking based on luminance
+    let shadow_protection = smoothstep(0.0, 0.25, original_luma);
+    let highlight_protection = 1.0 - smoothstep(0.75, 1.0, original_luma);
     let midtone_mask = shadow_protection * highlight_protection;
     
-    // Apply the effect in sRGB space
-    var result_srgb: vec3<f32>;
+    var result_linear: vec3<f32>;
     
     if (amount > 0.0) {
-        // Positive: enhance detail (sharpening)
-        let enhanced_detail = detail_srgb * amount * midtone_mask;
-        result_srgb = processed_srgb + enhanced_detail;
+        // Positive: enhance detail (sharpening/clarity/structure)
+        
+        // Use different approaches based on radius (effect type)
+        if (radius <= 3) {
+            // Small radius = sharpening - enhance all detail
+            let enhanced_detail = detail_linear * amount;
+            result_linear = original_linear + enhanced_detail * midtone_mask;
+        } else {
+            // Larger radius = clarity/structure - use unsharp mask approach
+            // This method naturally preserves overall brightness better
+            let enhancement_strength = amount * midtone_mask;
+            
+            // Apply detail enhancement with automatic brightness compensation
+            let detail_magnitude = length(detail_linear);
+            let adaptive_strength = enhancement_strength * smoothstep(0.001, 0.05, detail_magnitude);
+            
+            result_linear = original_linear + detail_linear * adaptive_strength;
+            
+            // Soft luminance stabilization only for extreme changes
+            let result_luma = dot(result_linear, vec3<f32>(0.2126, 0.7152, 0.0722));
+            let luma_change = abs(result_luma - original_luma) / max(original_luma, 0.001);
+            
+            if (luma_change > 0.15) { // Only correct significant brightness shifts
+                let correction_factor = mix(1.0, original_luma / max(result_luma, 0.001), 0.5);
+                result_linear *= correction_factor;
+            }
+        }
     } else {
-        // Negative: reduce detail (clarity/structure smoothing)
+        // Negative: reduce detail (smoothing)
         let smoothing_amount = abs(amount) * midtone_mask;
-        result_srgb = mix(processed_srgb, blurred_srgb, smoothing_amount);
+        result_linear = mix(original_linear, blurred_linear, smoothing_amount);
     }
     
-    // Clamp in sRGB space and convert back to linear
-    result_srgb = clamp(result_srgb, vec3<f32>(0.0), vec3<f32>(1.0));
-    return srgb_to_linear(result_srgb);
+    // Ensure we don't create invalid values
+    return clamp(result_linear, vec3<f32>(0.0), vec3<f32>(2.0));
 }
 
 fn estimate_atmospheric_light(color: vec3<f32>) -> vec3<f32> {

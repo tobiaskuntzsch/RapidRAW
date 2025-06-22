@@ -391,12 +391,22 @@ fn post_process_pixel(
     let g_wb = g_norm * wb_coeffs[1];
     let b_wb = b_norm * wb_coeffs[2];
 
-    // 3. Color space conversion (Camera Native -> Linear sRGB)
-    let r_srgb = r_wb * cam_to_srgb[0][0] + g_wb * cam_to_srgb[0][1] + b_wb * cam_to_srgb[0][2];
-    let g_srgb = r_wb * cam_to_srgb[1][0] + g_wb * cam_to_srgb[1][1] + b_wb * cam_to_srgb[1][2];
-    let b_srgb = r_wb * cam_to_srgb[2][0] + g_wb * cam_to_srgb[2][1] + b_wb * cam_to_srgb[2][2];
+    // 3. Aggressive Highlight Handling
+    let max_wb = r_wb.max(g_wb).max(b_wb);
 
-    // 4. Gamma correction (Linear -> sRGB)
+    let (r_handled, g_handled, b_handled) = if max_wb > 1.0 {
+        // The pixel is blown out. Discard the unreliable color and make it white.
+        (max_wb, max_wb, max_wb)
+    } else {
+        (r_wb, g_wb, b_wb)
+    };
+
+    // 4. Color space conversion (Camera Native -> Linear sRGB)
+    let r_srgb = r_handled * cam_to_srgb[0][0] + g_handled * cam_to_srgb[0][1] + b_handled * cam_to_srgb[0][2];
+    let g_srgb = r_handled * cam_to_srgb[1][0] + g_handled * cam_to_srgb[1][1] + b_handled * cam_to_srgb[1][2];
+    let b_srgb = r_handled * cam_to_srgb[2][0] + g_handled * cam_to_srgb[2][1] + b_handled * cam_to_srgb[2][2];
+
+    // 5. Gamma correction (Linear -> sRGB)
     fn linear_to_srgb_channel(c: f32) -> f32 {
         let c_clamped = c.clamp(0.0, 1.0);
         if c_clamped <= 0.0031308 {
@@ -409,7 +419,7 @@ fn post_process_pixel(
     let g_gamma = linear_to_srgb_channel(g_srgb);
     let b_gamma = linear_to_srgb_channel(b_srgb);
 
-    // 5. Convert to u8
+    // 6. Convert to u8
     (
         (r_gamma * 255.0).round() as u8,
         (g_gamma * 255.0).round() as u8,

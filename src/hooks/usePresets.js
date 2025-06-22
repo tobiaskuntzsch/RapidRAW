@@ -13,12 +13,13 @@ export function usePresets(currentAdjustments) {
       setPresets(loadedPresets);
     } catch (error) {
       console.error('Failed to load presets:', error);
+      setPresets([]);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const savePresets = useCallback(debounce((presetsToSave) => {
+  const savePresetsToBackend = useCallback(debounce((presetsToSave) => {
     invoke('save_presets', { presets: presetsToSave })
       .catch(err => console.error("Failed to save presets:", err));
   }, 500), []);
@@ -35,13 +36,13 @@ export function usePresets(currentAdjustments) {
     };
     const updatedPresets = [...presets, newPreset];
     setPresets(updatedPresets);
-    savePresets(updatedPresets);
+    savePresetsToBackend(updatedPresets);
   };
 
   const deletePreset = (id) => {
     const updatedPresets = presets.filter(p => p.id !== id);
     setPresets(updatedPresets);
-    savePresets(updatedPresets);
+    savePresetsToBackend(updatedPresets);
   };
 
   const renamePreset = (id, newName) => {
@@ -49,7 +50,7 @@ export function usePresets(currentAdjustments) {
       p.id === id ? { ...p, name: newName } : p
     );
     setPresets(updatedPresets);
-    savePresets(updatedPresets);
+    savePresetsToBackend(updatedPresets);
   };
 
   const reorderPresets = (result) => {
@@ -60,15 +61,41 @@ export function usePresets(currentAdjustments) {
     items.splice(result.destination.index, 0, reorderedItem);
 
     setPresets(items);
-    savePresets(items);
+    savePresetsToBackend(items);
   };
+
+  const importPresetsFromFile = useCallback(async (filePath) => {
+    setIsLoading(true);
+    try {
+      const updatedPresetList = await invoke('handle_import_presets_from_file', { filePath });
+      setPresets(updatedPresetList);
+    } catch (error) {
+      console.error('Failed to import presets from file:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [setPresets]);
+
+  const exportPresetsToFile = useCallback(async (presetsToExport, filePath) => {
+    try {
+      await invoke('handle_export_presets_to_file', { presetsToExport, filePath });
+    } catch (error) {
+      console.error('Failed to export presets to file:', error);
+      throw error;
+    }
+  }, []);
 
   return {
     presets,
+    setPresets,
     isLoading,
     addPreset,
     deletePreset,
     renamePreset,
     reorderPresets,
+    importPresetsFromFile,
+    exportPresetsToFile,
+    refreshPresets: loadPresets,
   };
 }

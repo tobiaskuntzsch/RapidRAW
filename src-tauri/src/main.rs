@@ -19,6 +19,7 @@ use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 use serde::{Serialize, Deserialize};
+use uuid::Uuid;
 
 use crate::image_processing::{
     get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
@@ -52,6 +53,11 @@ struct Preset {
     id: String,
     name: String,
     adjustments: Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct PresetFile {
+    presets: Vec<Preset>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -102,7 +108,6 @@ fn is_raw_file(path: &str) -> bool {
 }
 
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
-    // Convert RGBA to RGB before encoding, as JPEG doesn't support alpha.
     let rgb_image = image.to_rgb8();
 
     let mut buf = Cursor::new(Vec::new());
@@ -727,6 +732,40 @@ fn generate_preset_preview(
     encode_to_base64(&processed_image, 50)
 }
 
+#[tauri::command]
+fn handle_import_presets_from_file(file_path: String, app_handle: tauri::AppHandle) -> Result<Vec<Preset>, String> {
+    let content = fs::read_to_string(file_path).map_err(|e| format!("Failed to read preset file: {}", e))?;
+    let imported_preset_file: PresetFile = serde_json::from_str(&content).map_err(|e| format!("Failed to parse preset file: {}", e))?;
+
+    let mut current_presets = load_presets(app_handle.clone())?;
+    let mut current_preset_names: HashMap<String, usize> = current_presets.iter().map(|p| (p.name.clone(), 1)).collect();
+
+    for mut imported_preset in imported_preset_file.presets {
+        imported_preset.id = Uuid::new_v4().to_string(); // Assign new unique ID
+
+        let mut new_name = imported_preset.name.clone();
+        let mut counter = 1;
+        while current_preset_names.contains_key(&new_name) {
+            new_name = format!("{} ({})", imported_preset.name, counter);
+            counter += 1;
+        }
+        imported_preset.name = new_name;
+        current_preset_names.insert(imported_preset.name.clone(), 1);
+        current_presets.push(imported_preset);
+    }
+
+    save_presets(current_presets.clone(), app_handle)?;
+    Ok(current_presets)
+}
+
+#[tauri::command]
+fn handle_export_presets_to_file(presets_to_export: Vec<Preset>, file_path: String) -> Result<(), String> {
+    let preset_file = PresetFile { presets: presets_to_export };
+    let json_string = serde_json::to_string_pretty(&preset_file).map_err(|e| format!("Failed to serialize presets: {}", e))?;
+    fs::write(file_path, json_string).map_err(|e| format!("Failed to write preset file: {}", e))
+}
+
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -770,7 +809,9 @@ fn main() {
             generate_uncropped_preview,
             load_settings,
             save_settings,
-            reset_adjustments_for_paths
+            reset_adjustments_for_paths,
+            handle_import_presets_from_file,
+            handle_export_presets_to_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

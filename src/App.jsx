@@ -700,22 +700,44 @@ function App() {
 
   }, [multiSelectedPaths, selectedImage, libraryActivePath]);
 
+const handleZoomChange = useCallback((newZoomValue) => {
+  setZoom(newZoomValue);
 
-  const handleZoomChange = useCallback((newZoom) => {
-    if (transformWrapperRef.current) {
-      const { state, setTransform } = transformWrapperRef.current;
-      const { positionX, positionY, scale } = state;
-      const container = transformWrapperRef.current.instance.wrapperComponent;
-      if (!container) return;
+  if (transformWrapperRef.current) {
+    const wrapperInstance = transformWrapperRef.current;
+    const { setTransform, state: currentTransformState, instance: rzpInstance } = wrapperInstance;
 
-      const { clientWidth, clientHeight } = container;
-      const centerX = clientWidth / 2;
-      const centerY = clientHeight / 2;
-      const newPositionX = centerX - (centerX - positionX) * (newZoom / scale);
-      const newPositionY = centerY - (centerY - positionY) * (newZoom / scale);
-      setTransform(newPositionX, newPositionY, newZoom, 100, 'easeOut');
+    if (typeof setTransform !== 'function') {
+      console.error("setTransform is not a function on transformWrapperRef.current");
+      return;
     }
-  }, []);
+
+    const container = rzpInstance?.wrapperComponent;
+
+    if (container && container.clientWidth > 0 && container.clientHeight > 0 && currentTransformState) {
+      const { clientWidth: viewportWidth, clientHeight: viewportHeight } = container;
+      const { scale: currentScale, positionX: currentPanX, positionY: currentPanY } = currentTransformState;
+
+      if (currentScale === 0 || currentScale === newZoomValue) {
+        setTransform(currentPanX, currentPanY, newZoomValue, 100, 'easeOut');
+        return;
+      }
+
+      const viewportCenterX = viewportWidth / 2;
+      const viewportCenterY = viewportHeight / 2;
+      const scaleRatio = newZoomValue / currentScale;
+      const newPanX = viewportCenterX - (viewportCenterX - currentPanX) * scaleRatio;
+      const newPanY = viewportCenterY - (viewportCenterY - currentPanY) * scaleRatio;
+      
+      setTransform(newPanX, newPanY, newZoomValue, 100, 'easeOut');
+
+    } else {
+      const fallbackX = currentTransformState ? currentTransformState.positionX : null;
+      const fallbackY = currentTransformState ? currentTransformState.positionY : null;
+      setTransform(fallbackX, fallbackY, newZoomValue, 100, 'easeOut');
+    }
+  }
+}, [setZoom]);
 
   const handleClearSelection = () => {
     if (selectedImage) {

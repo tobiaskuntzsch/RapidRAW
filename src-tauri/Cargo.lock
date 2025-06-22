@@ -25,6 +25,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tokio",
+ "uuid",
  "wgpu",
  "window-vibrancy",
 ]

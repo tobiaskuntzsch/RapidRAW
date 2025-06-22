@@ -36,7 +36,7 @@ const Switch = ({ label, checked, onChange, disabled = false, className = '' }) 
         ></div>
         <div
           className={clsx(
-            'absolute left-0.5 top-0.5 bg-text-secondary w-4 h-4 rounded-full transition-transform transition-colors',
+            'absolute left-0.5 top-0.5 bg-text-secondary w-4 h-4 rounded-full transition-colors',
             'peer-checked:translate-x-5 peer-checked:bg-white'
           )}
         ></div>

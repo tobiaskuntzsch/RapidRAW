@@ -86,7 +86,6 @@ function App() {
   const [multiSelectedPaths, setMultiSelectedPaths] = useState([]);
   const [libraryActivePath, setLibraryActivePath] = useState(null);
   const [libraryActiveAdjustments, setLibraryActiveAdjustments] = useState(INITIAL_ADJUSTMENTS);
-  const [quickPreviewUrl, setQuickPreviewUrl] = useState(null);
   const [finalPreviewUrl, setFinalPreviewUrl] = useState(null);
   const [uncroppedAdjustedPreviewUrl, setUncroppedAdjustedPreviewUrl] = useState(null);
   const [adjustments, setAdjustments] = useState(INITIAL_ADJUSTMENTS);
@@ -178,9 +177,6 @@ function App() {
     let isEffectActive = true;
 
     const listeners = [
-      listen('preview-update-quick', (event) => {
-        if (isEffectActive) setQuickPreviewUrl(event.payload);
-      }),
       listen('preview-update-final', (event) => {
         if (isEffectActive) {
           setFinalPreviewUrl(event.payload);
@@ -386,7 +382,6 @@ function App() {
       if (selectedImage) {
         setSelectedImage(null);
         setFinalPreviewUrl(null);
-        setQuickPreviewUrl(null);
         setUncroppedAdjustedPreviewUrl(null);
         setHistogram(null);
       }
@@ -477,7 +472,6 @@ function App() {
     setIsViewLoading(true);
     setError(null);
     setHistogram(null);
-    setQuickPreviewUrl(null);
     setFinalPreviewUrl(null);
     setUncroppedAdjustedPreviewUrl(null);
     setAdjustments(INITIAL_ADJUSTMENTS);
@@ -537,7 +531,6 @@ function App() {
     const lastActivePath = selectedImage?.path;
     setSelectedImage(null);
     setFinalPreviewUrl(null);
-    setQuickPreviewUrl(null);
     setUncroppedAdjustedPreviewUrl(null);
     setHistogram(null);
     setActiveMaskId(null);
@@ -656,7 +649,6 @@ function App() {
           <div className="flex-1 flex flex-col min-w-0 gap-2">
             <Editor
               selectedImage={selectedImage}
-              quickPreviewUrl={quickPreviewUrl}
               finalPreviewUrl={finalPreviewUrl}
               uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
               showOriginal={showOriginal}

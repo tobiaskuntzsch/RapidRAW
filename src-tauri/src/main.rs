@@ -248,8 +248,7 @@ fn apply_adjustments(
     thread::spawn(move || {
         let (cropped_w, _cropped_h) = cropped_image_base.dimensions();
 
-        const QUICK_PREVIEW_DIM: u32 = 1080;
-        const FINAL_PREVIEW_DIM: u32 = 2160;
+        const FINAL_PREVIEW_DIM: u32 = 1920;
 
         let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
         let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
@@ -265,14 +264,8 @@ fn apply_adjustments(
         let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
 
         if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
-            let quick_processed_image = final_processed_image.thumbnail(QUICK_PREVIEW_DIM, QUICK_PREVIEW_DIM);
-            
-            if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&quick_processed_image) {
+            if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&final_processed_image) {
                 let _ = app_handle.emit("histogram-update", histogram_data);
-            }
-
-            if let Ok(base64_str) = encode_to_base64(&quick_processed_image, 75) {
-                let _ = app_handle.emit("preview-update-quick", base64_str);
             }
 
             if let Ok(base64_str) = encode_to_base64(&final_processed_image, 88) {
@@ -296,7 +289,7 @@ fn generate_uncropped_preview(
     let (full_w, _full_h) = (loaded_image.full_width, loaded_image.full_height);
 
     thread::spawn(move || {
-        const UNCROPPED_PREVIEW_DIM: u32 = 2160;
+        const UNCROPPED_PREVIEW_DIM: u32 = 1920;
         
         let uncropped_target_dim = original_image.width().min(UNCROPPED_PREVIEW_DIM);
         let uncropped_preview_base = original_image.thumbnail(uncropped_target_dim, uncropped_target_dim);
@@ -426,7 +419,6 @@ fn batch_export_images(
         let _ = app_handle.emit("batch-export-progress", serde_json::json!({ "current": i, "total": paths.len(), "path": image_path_str }));
 
         let processing_result: Result<(), String> = (|| {
-            // Load base image
             let file_bytes = fs::read(image_path_str).map_err(|e| e.to_string())?;
             let base_image = if is_raw_file(image_path_str) {
                 raw_processing::develop_raw_image(&file_bytes, demosaic_quality.clone().unwrap_or(DemosaicAlgorithm::Menon))?
@@ -434,7 +426,6 @@ fn batch_export_images(
                 image::load_from_memory(&file_bytes).map_err(|e| e.to_string())?
             };
 
-            // Load adjustments from sidecar
             let sidecar_path = get_sidecar_path(image_path_str);
             let metadata: ImageMetadata = if sidecar_path.exists() {
                 let file_content = fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
@@ -444,12 +435,10 @@ fn batch_export_images(
             };
             let js_adjustments = metadata.adjustments;
 
-            // Process image
             let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
             let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
             let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
 
-            // Apply resize
             if let Some(resize_opts) = &export_settings.resize {
                 let (current_w, current_h) = final_image.dimensions();
                 let should_resize = if resize_opts.dont_enlarge {
@@ -476,7 +465,6 @@ fn batch_export_images(
                 }
             }
 
-            // Save file
             let original_path = Path::new(image_path_str);
             let original_stem = original_path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
             let new_filename = format!("{}_edited.{}", original_stem, output_format);
@@ -749,7 +737,7 @@ fn main() {
             load_image,
             apply_adjustments,
             export_image,
-            batch_export_images, // <-- ADDED
+            batch_export_images,
             generate_fullscreen_preview,
             save_metadata_and_update_thumbnail,
             apply_adjustments_to_paths,

@@ -228,18 +228,73 @@ const EditorToolbar = memo(({ onBackToLibrary, selectedImage, isLoading, onToggl
 
 const ImageCanvas = memo(({
   isCropping, crop, setCrop, handleCropComplete, adjustments, selectedImage,
-  isMasking, imageRenderSize, showOriginal, thumbnailData, quickPreviewUrl, finalPreviewUrl,
-  uncroppedAdjustedPreviewUrl,
+  isMasking, imageRenderSize, showOriginal, finalPreviewUrl, isAdjusting,
+  uncroppedAdjustedPreviewUrl, thumbnailData,
   onSelectMask, activeMaskId, handleUpdateMask, isMaskHovered, setIsMaskHovered
 }) => {
-  const [quickPreviewLoaded, setQuickPreviewLoaded] = useState(false);
-  const [highResLoaded, setHighResLoaded] = useState(false);
   const [isCropViewVisible, setIsCropViewVisible] = useState(false);
+  const imagePathRef = useRef(null);
+  const latestEditedUrlRef = useRef(null);
+  const [layers, setLayers] = useState([]);
 
+  // Effect to manage all layer changes: new image, new preview, or toggling original
   useEffect(() => {
-    setQuickPreviewLoaded(false);
-    setHighResLoaded(false);
-  }, [selectedImage.path, adjustments]);
+    const currentImagePath = selectedImage.path;
+    const originalUrl = selectedImage.originalUrl;
+    const topLayer = layers[layers.length - 1];
+
+    // 1. On new image selection, reset everything.
+    if (currentImagePath !== imagePathRef.current) {
+      imagePathRef.current = currentImagePath;
+      const initialUrl = finalPreviewUrl || originalUrl || thumbnailData;
+      if (initialUrl) {
+        latestEditedUrlRef.current = initialUrl;
+        setLayers([{ id: initialUrl, url: initialUrl, opacity: 1 }]);
+      } else {
+        setLayers([]);
+      }
+      return;
+    }
+
+    // 2. Handle toggling "Show Original"
+    if (showOriginal && topLayer?.id !== 'original') {
+      setLayers(prev => [...prev, { id: 'original', url: originalUrl, opacity: 0 }]);
+      return;
+    }
+    if (!showOriginal && topLayer?.id === 'original') {
+      setLayers(prev => [...prev, { id: latestEditedUrlRef.current, url: latestEditedUrlRef.current, opacity: 0 }]);
+      return;
+    }
+
+    // 3. Handle new edited preview URL
+    if (finalPreviewUrl && finalPreviewUrl !== latestEditedUrlRef.current) {
+      latestEditedUrlRef.current = finalPreviewUrl;
+      const img = new Image();
+      img.src = finalPreviewUrl;
+      img.onload = () => {
+        if (img.src === latestEditedUrlRef.current) {
+          setLayers(prev => [...prev, { id: img.src, url: img.src, opacity: 0 }]);
+        }
+      };
+      return () => { img.onload = null; };
+    }
+  }, [selectedImage, finalPreviewUrl, thumbnailData, showOriginal, layers]);
+
+  // Effect for triggering the fade-in of a new layer
+  useEffect(() => {
+    const layerToFadeIn = layers.find(l => l.opacity === 0);
+    if (layerToFadeIn) {
+      queueMicrotask(() => {
+        setLayers(prev =>
+          prev.map(l => (l.id === layerToFadeIn.id ? { ...l, opacity: 1 } : l))
+        );
+      });
+    }
+  }, [layers]);
+
+  const handleTransitionEnd = useCallback((finishedId) => {
+    setLayers(prev => prev.length > 1 ? prev.filter(l => l.id === finishedId) : prev);
+  }, []);
 
   useEffect(() => {
     if (isCropping) {
@@ -250,41 +305,43 @@ const ImageCanvas = memo(({
     }
   }, [isCropping]);
 
-  const imageLayers = [
-    { id: 'original', src: selectedImage.originalUrl, visible: showOriginal, zIndex: 0, style: { pointerEvents: 'none' }, isFading: true },
-    { id: 'thumb', src: thumbnailData, visible: !showOriginal && !quickPreviewLoaded, zIndex: 1, isFading: true },
-    { id: 'quick', src: quickPreviewUrl, visible: !showOriginal, zIndex: 2, onLoad: () => setQuickPreviewLoaded(true), isFading: true },
-    { id: 'final', src: finalPreviewUrl, visible: !showOriginal, zIndex: 3, onLoad: () => setHighResLoaded(true), isFading: true, isLoaded: highResLoaded },
-  ];
-
   const cropPreviewUrl = uncroppedAdjustedPreviewUrl || selectedImage.originalUrl;
+  const isContentReady = layers.length > 0;
 
   return (
     <div className="relative" style={{ width: imageRenderSize.width, height: imageRenderSize.height }}>
+      {/* Main Image View */}
       <div
-        className="absolute inset-0 w-full h-full"
+        className="absolute inset-0 w-full h-full transition-opacity duration-200"
         style={{
           opacity: isCropViewVisible ? 0 : 1,
           pointerEvents: isCropViewVisible ? 'none' : 'auto',
         }}
       >
-        {imageLayers.map(layer => layer.src && (
-          <img
-            key={layer.id}
-            src={layer.src}
-            alt={layer.id}
-            onLoad={layer.onLoad}
-            className={clsx(
-              "absolute top-0 left-0 w-full h-full object-contain",
-              layer.isFading && "transition-opacity duration-300"
-            )}
-            style={{
-              opacity: layer.visible ? (layer.isLoaded !== undefined ? (layer.isLoaded ? 1 : 0) : 1) : 0,
-              zIndex: layer.zIndex,
-              ...layer.style,
-            }}
-          />
-        ))}
+        <div
+          className={clsx(
+            "absolute inset-0 w-full h-full transition-opacity duration-300",
+            isAdjusting && !showOriginal ? 'opacity-70' : 'opacity-100'
+          )}
+          style={{ opacity: isContentReady ? 1 : 0 }}
+        >
+          <div className="absolute inset-0 w-full h-full">
+            {layers.map(layer => (
+              <img
+                key={layer.id}
+                src={layer.url}
+                alt={layer.id === 'original' ? 'Original' : 'Edited'}
+                onTransitionEnd={() => handleTransitionEnd(layer.id)}
+                className="absolute inset-0 w-full h-full object-contain"
+                style={{
+                  opacity: layer.opacity,
+                  transition: 'opacity 150ms ease-in-out',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
         {isMasking && imageRenderSize.width > 0 && (
           <Stage
             width={imageRenderSize.width}
@@ -315,8 +372,9 @@ const ImageCanvas = memo(({
         )}
       </div>
 
+      {/* Crop View */}
       <div
-        className="absolute inset-0 w-full h-full flex items-center justify-center"
+        className="absolute inset-0 w-full h-full flex items-center justify-center transition-opacity duration-200"
         style={{
           opacity: isCropViewVisible ? 1 : 0,
           pointerEvents: isCropViewVisible ? 'auto' : 'none',
@@ -344,7 +402,7 @@ const ImageCanvas = memo(({
 });
 
 export default function Editor({
-  selectedImage, quickPreviewUrl, finalPreviewUrl, uncroppedAdjustedPreviewUrl,
+  selectedImage, finalPreviewUrl, uncroppedAdjustedPreviewUrl,
   showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
   isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel, renderedRightPanel,
   adjustments, setAdjustments, thumbnails, activeMaskId, onSelectMask,
@@ -354,11 +412,25 @@ export default function Editor({
   const [isMaskHovered, setIsMaskHovered] = useState(false);
   const [isLoaderVisible, setIsLoaderVisible] = useState(false);
   const imageContainerRef = useRef(null);
+  const isInitialMount = useRef(true);
+
+  // Auto-revert from "Show Original" when a new adjustment is made.
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (showOriginal) {
+      setShowOriginal(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalPreviewUrl]); // This should ONLY run when finalPreviewUrl changes.
 
   const isCropping = renderedRightPanel === 'crop';
   const isMasking = renderedRightPanel === 'masks';
   const thumbnailData = thumbnails[selectedImage?.path];
-  const showSpinner = isLoading && !quickPreviewUrl && !thumbnailData;
+  
+  const showSpinner = isLoading && !finalPreviewUrl && !thumbnailData && !selectedImage.originalUrl;
 
   const imageRenderSize = useImageRenderSize(imageContainerRef, selectedImage);
 
@@ -477,10 +549,10 @@ export default function Editor({
                 isMasking={isMasking}
                 imageRenderSize={imageRenderSize}
                 showOriginal={showOriginal}
-                thumbnailData={thumbnailData}
-                quickPreviewUrl={quickPreviewUrl}
                 finalPreviewUrl={finalPreviewUrl}
+                isAdjusting={isAdjusting}
                 uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
+                thumbnailData={thumbnailData}
                 onSelectMask={onSelectMask}
                 activeMaskId={activeMaskId}
                 handleUpdateMask={handleUpdateMask}

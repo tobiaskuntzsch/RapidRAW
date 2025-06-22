@@ -38,6 +38,7 @@ export default function BottomBar({
   imageList,
   selectedImage,
   onImageSelect,
+  onContextMenu,
   multiSelectedPaths,
   thumbnails,
   imageRatings,
@@ -49,7 +50,9 @@ export default function BottomBar({
   onExportClick,
   isExportDisabled,
   isLibraryView = false,
-  onClearSelection, // <-- ADDED PROP
+  onClearSelection,
+  filmstripHeight,
+  isResizing,
 }) {
   const [isCopied, setIsCopied] = useState(false);
   const [isPasted, setIsPasted] = useState(false);
@@ -79,19 +82,24 @@ export default function BottomBar({
   return (
     <div className="flex-shrink-0 bg-bg-secondary rounded-lg flex flex-col">
       {!isLibraryView && (
-        <div className={clsx(
-          "transition-all duration-300 ease-in-out overflow-hidden",
-          isFilmstripVisible ? 'h-36 p-2' : 'h-0 p-0'
-        )}>
+        <div
+          className={clsx(
+            "overflow-hidden",
+            !isResizing && 'transition-all duration-300 ease-in-out',
+            isFilmstripVisible ? 'p-2' : 'p-0'
+          )}
+          style={{ height: isFilmstripVisible ? `${filmstripHeight}px` : '0px' }}
+        >
           <Filmstrip
             imageList={imageList}
             selectedImage={selectedImage}
             onImageSelect={onImageSelect}
+            onContextMenu={onContextMenu}
             multiSelectedPaths={multiSelectedPaths}
             thumbnails={thumbnails}
             imageRatings={imageRatings}
             isLoading={isLoading}
-            onClearSelection={onClearSelection} // <-- PASSED PROP DOWN
+            onClearSelection={onClearSelection}
           />
         </div>
       )}

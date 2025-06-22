@@ -406,7 +406,7 @@ export default function Editor({
   showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
   isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel, renderedRightPanel,
   adjustments, setAdjustments, thumbnails, activeMaskId, onSelectMask,
-  transformWrapperRef, onZoomed
+  transformWrapperRef, onZoomed, onContextMenu
 }) {
   const [crop, setCrop] = useState();
   const [isMaskHovered, setIsMaskHovered] = useState(false);
@@ -517,7 +517,11 @@ export default function Editor({
           isFullScreenLoading={isFullScreenLoading}
         />
 
-        <div className="flex-1 relative overflow-hidden rounded-lg" ref={imageContainerRef}>
+        <div 
+          className="flex-1 relative overflow-hidden rounded-lg" 
+          ref={imageContainerRef}
+          onContextMenu={(e) => onContextMenu(e, selectedImage.path)}
+        >
           {showSpinner && (
             <div className={clsx(
               "absolute inset-0 bg-bg-secondary/80 flex items-center justify-center z-50 transition-opacity duration-300",

@@ -101,7 +101,7 @@ function SortDropdown({ sortCriteria, setSortCriteria }) {
   );
 }
 
-function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, isActive, rating }) {
+function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, isActive, rating, onContextMenu }) {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -123,6 +123,7 @@ function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, i
         onImageClick(path, e);
       }}
       onDoubleClick={() => onImageDoubleClick(path)}
+      onContextMenu={onContextMenu}
       className={`aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative transition-all duration-150 ${ringClass}`}
       title={path.split(/[\\/]/).pop()}
     >
@@ -160,6 +161,7 @@ export default function MainLibrary({
   imageList,
   onImageClick,
   onImageDoubleClick,
+  onContextMenu,
   multiSelectedPaths,
   activePath,
   rootPath,
@@ -323,6 +325,7 @@ export default function MainLibrary({
                     onImageDoubleClick={onImageDoubleClick}
                     isSelected={multiSelectedPaths.includes(imageFile.path)}
                     isActive={activePath === imageFile.path}
+                    onContextMenu={(e) => onContextMenu(e, imageFile.path)}
                   />
                 </motion.div>
               ))}

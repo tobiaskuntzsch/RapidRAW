@@ -6,10 +6,11 @@ export default function Filmstrip({
   imageList, 
   selectedImage, 
   onImageSelect, 
+  onContextMenu,
   thumbnails,
   multiSelectedPaths,
   imageRatings,
-  onClearSelection, // <-- ADDED PROP
+  onClearSelection,
 }) {
   const filmstripRef = useRef(null);
 
@@ -53,7 +54,7 @@ export default function Filmstrip({
     <div 
       ref={filmstripRef} 
       className="h-full overflow-x-auto overflow-y-hidden p-1"
-      onClick={onClearSelection} // <-- ADDED ONCLICK TO CONTAINER
+      onClick={onClearSelection}
     >
       <motion.div className="flex h-full gap-2">
         <AnimatePresence>
@@ -79,9 +80,10 @@ export default function Filmstrip({
                 exit={{ opacity: 0, scale: 0.9 }}
                 transition={{ duration: 0.3, ease: "easeInOut" }}
                 onClick={(e) => {
-                  e.stopPropagation(); // <-- STOP PROPAGATION
+                  e.stopPropagation();
                   onImageSelect(path, e);
                 }}
+                onContextMenu={(e) => onContextMenu(e, path)}
                 className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${ringClass}`}
                 data-path={path}
                 style={{ zIndex: isActive ? 2 : isSelected ? 1 : 'auto' }}

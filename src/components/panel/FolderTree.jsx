@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, ChevronLeft, ChevronRight } from 'lucide-react';
+import clsx from 'clsx';
 
 function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -68,12 +69,14 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
   );
 }
 
-export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoading, isVisible, setIsVisible }) {
+export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoading, isVisible, setIsVisible, style, isResizing }) {
   return (
     <div
-      className={`relative bg-bg-secondary rounded-lg flex-shrink-0 transition-[width] duration-300 ease-in-out ${
-        isVisible ? 'w-64' : 'w-8'
-      }`}
+      className={clsx(
+        'relative bg-bg-secondary rounded-lg flex-shrink-0',
+        !isResizing && 'transition-[width] duration-300 ease-in-out'
+      )}
+      style={style}
     >
       <button
         onClick={() => setIsVisible(!isVisible)}

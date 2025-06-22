@@ -5,6 +5,8 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
 import { centerCrop, makeAspectCrop } from 'react-image-crop';
+import clsx from 'clsx';
+import { Copy, ClipboardPaste, RotateCcw } from 'lucide-react';
 import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
@@ -20,8 +22,7 @@ import ExportPanel from './components/panel/right/ExportPanel';
 import LibraryExportPanel from './components/panel/right/LibraryExportPanel';
 import MasksPanel from './components/panel/right/MasksPanel';
 import BottomBar from './components/panel/BottomBar';
-import { ContextMenuProvider } from './context/ContextMenuContext';
-import ContextMenu from './components/ui/ContextMenu';
+import { ContextMenuProvider, useContextMenu } from './context/ContextMenuContext';
 
 export const INITIAL_MASK_ADJUSTMENTS = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
@@ -66,6 +67,19 @@ export const INITIAL_ADJUSTMENTS = {
   flipVertical: false,
   masks: [],
 };
+
+const Resizer = ({ onMouseDown, direction }) => (
+  <div
+      onMouseDown={onMouseDown}
+      className={clsx(
+          'flex-shrink-0 bg-transparent z-10',
+          {
+              'w-2 cursor-col-resize': direction === 'vertical',
+              'h-2 cursor-row-resize': direction === 'horizontal',
+          }
+      )}
+  />
+);
 
 function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
   return centerCrop(
@@ -119,6 +133,13 @@ function App() {
 
   const [isLibraryExportPanelVisible, setIsLibraryExportPanelVisible] = useState(false);
 
+  const [leftPanelWidth, setLeftPanelWidth] = useState(256);
+  const [rightPanelWidth, setRightPanelWidth] = useState(320);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(144);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const { showContextMenu } = useContextMenu();
+
   const imagePathList = useMemo(() => imageList.map(f => f.path), [imageList]);
   const { thumbnails } = useThumbnails(imagePathList);
 
@@ -150,6 +171,37 @@ function App() {
     return list;
   }, [imageList, sortCriteria, imageRatings]);
 
+  const createResizeHandler = useCallback((setter, startSize) => (e) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const doDrag = (moveEvent) => {
+        if (setter === setLeftPanelWidth) {
+            const newWidth = startSize + (moveEvent.clientX - startX);
+            setter(Math.max(200, Math.min(newWidth, 500)));
+        } else if (setter === setRightPanelWidth) {
+            const newWidth = startSize - (moveEvent.clientX - startX);
+            setter(Math.max(280, Math.min(newWidth, 600)));
+        } else if (setter === setBottomPanelHeight) {
+            const newHeight = startSize - (moveEvent.clientY - startY);
+            setter(Math.max(100, Math.min(newHeight, 400)));
+        }
+    };
+
+    const stopDrag = () => {
+        document.documentElement.style.cursor = '';
+        window.removeEventListener('mousemove', doDrag);
+        window.removeEventListener('mouseup', stopDrag);
+        setIsResizing(false);
+    };
+    
+    document.documentElement.style.cursor = setter === setBottomPanelHeight ? 'row-resize' : 'col-resize';
+    window.addEventListener('mousemove', doDrag);
+    window.addEventListener('mouseup', stopDrag);
+  }, []);
+
   const handleRightPanelSelect = (panelId) => {
     if (panelId === activeRightPanel) {
       setActiveRightPanel(null);
@@ -158,12 +210,6 @@ function App() {
       setRenderedRightPanel(panelId);
     }
     setActiveMaskId(null);
-  };
-
-  const handleTransitionEnd = () => {
-    if (activeRightPanel === null) {
-      setRenderedRightPanel(null);
-    }
   };
 
   useEffect(() => {
@@ -698,10 +744,105 @@ function App() {
       });
   };
 
+  const handleThumbnailContextMenu = (event, path) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const isTargetInSelection = multiSelectedPaths.includes(path);
+    let finalSelection = [];
+
+    if (!isTargetInSelection) {
+      finalSelection = [path];
+      setMultiSelectedPaths([path]);
+      if (!selectedImage) {
+        setLibraryActivePath(path);
+      }
+    } else {
+      finalSelection = multiSelectedPaths;
+    }
+
+    const selectionCount = finalSelection.length;
+    const pasteLabel = selectionCount > 1 
+        ? `Paste Adjustments to ${selectionCount} Images` 
+        : 'Paste Adjustments';
+    const resetLabel = selectionCount > 1
+        ? `Reset Adjustments on ${selectionCount} Images`
+        : 'Reset Adjustments';
+
+    const options = [
+      {
+        label: 'Copy Adjustments',
+        icon: Copy,
+        onClick: async () => {
+          try {
+            const metadata = await invoke('load_metadata', { path });
+            if (metadata.adjustments && !metadata.adjustments.is_null) {
+              const { crop, masks, aspectRatio, ...rest } = metadata.adjustments;
+              setCopiedAdjustments(rest);
+            } else {
+              const { rating, crop, masks, aspectRatio, ...rest } = INITIAL_ADJUSTMENTS;
+              setCopiedAdjustments(rest);
+            }
+          } catch (err) {
+            console.error("Failed to load metadata for copy:", err);
+            setError(`Failed to copy adjustments: ${err}`);
+          }
+        },
+      },
+      {
+        label: pasteLabel,
+        icon: ClipboardPaste,
+        disabled: copiedAdjustments === null,
+        onClick: () => {
+          if (!copiedAdjustments || finalSelection.length === 0) return;
+
+          // If the currently edited image is part of the paste operation,
+          // update the main adjustments state immediately to refresh the editor view.
+          if (selectedImage && finalSelection.includes(selectedImage.path)) {
+            setAdjustments(prev => ({
+              ...prev, // Keep existing crop, masks, etc.
+              ...copiedAdjustments, // Apply the pasted settings
+            }));
+          }
+
+          // This saves the metadata for all selected files (including the current one)
+          invoke('apply_adjustments_to_paths', { paths: finalSelection, adjustments: copiedAdjustments })
+            .catch(err => {
+              console.error("Failed to paste adjustments:", err);
+              setError(`Failed to paste adjustments: ${err}`);
+            });
+        },
+      },
+      {
+        label: resetLabel,
+        icon: RotateCcw,
+        isDestructive: true,
+        onClick: () => {
+          if (finalSelection.length === 0) return;
+          invoke('reset_adjustments_for_paths', { paths: finalSelection })
+            .then(() => {
+              if (finalSelection.includes(libraryActivePath)) {
+                setLibraryActiveAdjustments(prev => ({ ...INITIAL_ADJUSTMENTS, rating: prev.rating }));
+              }
+              if (selectedImage && finalSelection.includes(selectedImage.path)) {
+                  setAdjustments(prev => ({ ...INITIAL_ADJUSTMENTS, rating: prev.rating }));
+              }
+            })
+            .catch(err => {
+              console.error("Failed to reset adjustments:", err);
+              setError(`Failed to reset adjustments: ${err}`);
+            });
+        },
+      },
+    ];
+
+    showContextMenu(event.clientX, event.clientY, options);
+  };
+
   const renderContent = () => {
     if (selectedImage) {
       return (
-        <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
+        <div className="flex flex-row flex-grow h-full min-h-0">
           <FolderTree
             tree={folderTree}
             onFolderSelect={handleSelectSubfolder}
@@ -709,8 +850,12 @@ function App() {
             isLoading={isTreeLoading}
             isVisible={isFolderTreeVisible}
             setIsVisible={setIsFolderTreeVisible}
+            style={{ width: isFolderTreeVisible ? `${leftPanelWidth}px` : '32px' }}
+            isResizing={isResizing}
           />
-          <div className="flex-1 flex flex-col min-w-0 gap-2">
+          <Resizer onMouseDown={createResizeHandler(setLeftPanelWidth, leftPanelWidth)} direction="vertical" />
+
+          <div className="flex-1 flex flex-col min-w-0">
             <Editor
               selectedImage={selectedImage}
               finalPreviewUrl={finalPreviewUrl}
@@ -733,7 +878,9 @@ function App() {
               onSelectMask={setActiveMaskId}
               transformWrapperRef={transformWrapperRef}
               onZoomed={(transformState) => setZoom(transformState.scale)}
+              onContextMenu={handleThumbnailContextMenu}
             />
+            <Resizer onMouseDown={createResizeHandler(setBottomPanelHeight, bottomPanelHeight)} direction="horizontal" />
             <BottomBar
               rating={adjustments.rating || 0}
               onRate={handleRate}
@@ -747,6 +894,7 @@ function App() {
               imageList={sortedImageList}
               selectedImage={selectedImage}
               onImageSelect={handleImageClick}
+              onContextMenu={handleThumbnailContextMenu}
               multiSelectedPaths={multiSelectedPaths}
               thumbnails={thumbnails}
               imageRatings={imageRatings}
@@ -754,15 +902,21 @@ function App() {
               setIsFilmstripVisible={setIsFilmstripVisible}
               isLoading={isViewLoading}
               onClearSelection={handleClearSelection}
+              filmstripHeight={bottomPanelHeight}
+              isResizing={isResizing}
             />
           </div>
 
+          <Resizer onMouseDown={createResizeHandler(setRightPanelWidth, rightPanelWidth)} direction="vertical" />
           <div className="flex bg-bg-secondary rounded-lg h-full">
             <div
-              className={`h-full transition-all duration-300 ease-in-out ${activeRightPanel ? 'w-80' : 'w-0'} overflow-hidden`}
-              onTransitionEnd={handleTransitionEnd}
+              className={clsx(
+                'h-full overflow-hidden',
+                !isResizing && 'transition-all duration-300 ease-in-out'
+              )}
+              style={{ width: activeRightPanel ? `${rightPanelWidth}px` : '0px' }}
             >
-              <div className="w-80 h-full">
+              <div style={{ width: `${rightPanelWidth}px` }} className="h-full">
                 {renderedRightPanel === 'adjustments' && (
                   <Controls
                     adjustments={adjustments}
@@ -808,7 +962,7 @@ function App() {
                 {renderedRightPanel === 'ai' && <AIPanel selectedImage={selectedImage} />}
               </div>
             </div>
-            <div className={`h-full border-l ${activeRightPanel ? 'border-surface' : 'border-transparent'} transition-colors`}>
+            <div className={clsx('h-full border-l transition-colors', activeRightPanel ? 'border-surface' : 'border-transparent')}>
               <RightPanelSwitcher
                 activePanel={activeRightPanel}
                 onPanelSelect={handleRightPanelSelect}
@@ -820,22 +974,28 @@ function App() {
     }
 
     return (
-      <div className="flex flex-row flex-grow h-full min-h-0 gap-2">
+      <div className="flex flex-row flex-grow h-full min-h-0">
         {rootPath && (
-          <FolderTree
-            tree={folderTree}
-            onFolderSelect={handleSelectSubfolder}
-            selectedPath={currentFolderPath}
-            isLoading={isTreeLoading}
-            isVisible={isFolderTreeVisible}
-            setIsVisible={setIsFolderTreeVisible}
-          />
+          <>
+            <FolderTree
+              tree={folderTree}
+              onFolderSelect={handleSelectSubfolder}
+              selectedPath={currentFolderPath}
+              isLoading={isTreeLoading}
+              isVisible={isFolderTreeVisible}
+              setIsVisible={setIsFolderTreeVisible}
+              style={{ width: isFolderTreeVisible ? `${leftPanelWidth}px` : '32px' }}
+              isResizing={isResizing}
+            />
+            <Resizer onMouseDown={createResizeHandler(setLeftPanelWidth, leftPanelWidth)} direction="vertical" />
+          </>
         )}
         <div className="flex-1 flex flex-col min-w-0 gap-2">
           <MainLibrary
             imageList={sortedImageList}
             onImageClick={handleLibraryImageSingleClick}
             onImageDoubleClick={handleImageSelect}
+            onContextMenu={handleThumbnailContextMenu}
             multiSelectedPaths={multiSelectedPaths}
             activePath={libraryActivePath}
             rootPath={rootPath}
@@ -870,41 +1030,44 @@ function App() {
   };
 
   return (
-    <ContextMenuProvider>
-      <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden select-none">
-        <TitleBar />
-        <ContextMenu />
+    <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden select-none">
+      <TitleBar />
 
-        <div className="flex-1 flex flex-col pt-12 p-2 gap-2 min-h-0">
-          {error && (
-            <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
-              {error}
-              <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
-            </div>
-          )}
+      <div className="flex-1 flex flex-col pt-12 p-2 gap-2 min-h-0">
+        {error && (
+          <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
+            {error}
+            <button onClick={() => setError(null)} className="ml-4 font-bold hover:text-gray-200">×</button>
+          </div>
+        )}
 
-          <div className="flex flex-row flex-grow h-full min-h-0">
-            <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
-              {renderContent()}
-            </div>
-            
-            <div className={`
-              flex-shrink-0 
-              transition-all duration-300 ease-in-out 
-              overflow-hidden
-              ${isLibraryExportPanelVisible ? 'w-80 ml-2' : 'w-0'}
-            `}>
-              <LibraryExportPanel
-                isVisible={isLibraryExportPanelVisible}
-                onClose={() => setIsLibraryExportPanelVisible(false)}
-                multiSelectedPaths={multiSelectedPaths}
-              />
-            </div>
+        <div className="flex flex-row flex-grow h-full min-h-0">
+          <div className="flex-1 flex flex-col min-w-0">
+            {renderContent()}
+          </div>
+          
+          <div className={clsx(
+            'flex-shrink-0 overflow-hidden',
+            !isResizing && 'transition-all duration-300 ease-in-out',
+            isLibraryExportPanelVisible ? 'w-80 ml-2' : 'w-0'
+          )}>
+            <LibraryExportPanel
+              isVisible={isLibraryExportPanelVisible}
+              onClose={() => setIsLibraryExportPanelVisible(false)}
+              multiSelectedPaths={multiSelectedPaths}
+            />
           </div>
         </div>
       </div>
-    </ContextMenuProvider>
+    </div>
   );
 }
 
-export default App;
+// Wrap the App in the provider
+const AppWrapper = () => (
+  <ContextMenuProvider>
+    <App />
+  </ContextMenuProvider>
+);
+
+export default AppWrapper;

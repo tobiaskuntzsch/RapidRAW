@@ -17,7 +17,6 @@ export default function Controls({
 }) {
 
   const handleResetAdjustments = () => {
-    // Preserve rating when resetting
     const currentRating = adjustments.rating;
     setAdjustments({ ...INITIAL_ADJUSTMENTS, rating: currentRating });
   };

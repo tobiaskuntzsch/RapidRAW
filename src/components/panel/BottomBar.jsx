@@ -14,7 +14,7 @@ const StarRating = ({ rating, onRate }) => {
               size={18}
               className={`transition-colors duration-150 ${
                 starValue <= rating
-                  ? 'fill-yellow-400 text-yellow-400'
+                  ? 'fill-white text-white'
                   : 'text-text-secondary hover:text-text-primary'
               }`}
             />
@@ -40,6 +40,7 @@ export default function BottomBar({
   onImageSelect,
   multiSelectedPaths,
   thumbnails,
+  imageRatings,
   isFilmstripVisible,
   setIsFilmstripVisible,
   isLoading,
@@ -48,6 +49,7 @@ export default function BottomBar({
   onExportClick,
   isExportDisabled,
   isLibraryView = false,
+  onClearSelection, // <-- ADDED PROP
 }) {
   const [isCopied, setIsCopied] = useState(false);
   const [isPasted, setIsPasted] = useState(false);
@@ -87,7 +89,9 @@ export default function BottomBar({
             onImageSelect={onImageSelect}
             multiSelectedPaths={multiSelectedPaths}
             thumbnails={thumbnails}
+            imageRatings={imageRatings}
             isLoading={isLoading}
+            onClearSelection={onClearSelection} // <-- PASSED PROP DOWN
           />
         </div>
       )}

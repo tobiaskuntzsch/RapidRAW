@@ -32,8 +32,14 @@ fn is_raw_file(path: &str) -> bool {
     )
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct ImageFile {
+    path: String,
+    modified: u64,
+}
+
 #[tauri::command]
-pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
+pub fn list_images_in_dir(path: String) -> Result<Vec<ImageFile>, String> {
     let entries = fs::read_dir(path)
         .map_err(|e| e.to_string())?
         .filter_map(std::result::Result::ok)
@@ -53,7 +59,18 @@ pub fn list_images_in_dir(path: String) -> Result<Vec<String>, String> {
                     ["jpg", "jpeg", "png", "gif", "bmp", "arw", "cr2", "cr3", "nef", "dng", "raf", "orf", "pef", "rw2"].contains(&ext.as_str())
                 })
         })
-        .map(|path| path.to_string_lossy().into_owned())
+        .map(|path| {
+            let modified = fs::metadata(&path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            ImageFile {
+                path: path.to_string_lossy().into_owned(),
+                modified,
+            }
+        })
         .collect();
     Ok(entries)
 }
@@ -344,7 +361,7 @@ pub fn generate_thumbnails_progressive(
         let gpu_context = get_or_init_gpu_context(&state).ok();
 
         paths.par_iter().for_each(|path_str| {
-            let result = (|| -> Option<String> {
+            let result = (|| -> Option<(String, u8)> {
                 let original_path = Path::new(path_str);
                 let sidecar_path = get_sidecar_path(path_str);
 
@@ -355,11 +372,22 @@ pub fn generate_thumbnails_progressive(
                     .duration_since(std::time::UNIX_EPOCH)
                     .ok()?
                     .as_secs();
-                let sidecar_mod_time = fs::metadata(&sidecar_path)
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())
-                    .unwrap_or(0);
+
+                let (sidecar_mod_time, rating) = if let Ok(content) = fs::read_to_string(&sidecar_path) {
+                    let mod_time = fs::metadata(&sidecar_path)
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let rating_val = serde_json::from_str::<ImageMetadata>(&content)
+                        .ok()
+                        .map(|m| m.rating)
+                        .unwrap_or(0);
+                    (mod_time, rating_val)
+                } else {
+                    (0, 0)
+                };
 
                 let mut hasher = blake3::Hasher::new();
                 hasher.update(path_str.as_bytes());
@@ -372,7 +400,7 @@ pub fn generate_thumbnails_progressive(
                 if cache_path.exists() {
                     if let Ok(data) = fs::read(&cache_path) {
                         let base64_str = general_purpose::STANDARD.encode(&data);
-                        return Some(format!("data:image/jpeg;base64,{}", base64_str));
+                        return Some((format!("data:image/jpeg;base64,{}", base64_str), rating));
                     }
                 }
 
@@ -380,16 +408,16 @@ pub fn generate_thumbnails_progressive(
                     if let Ok(thumb_data) = encode_thumbnail(&thumb_image) {
                         let _ = fs::write(&cache_path, &thumb_data);
                         let base64_str = general_purpose::STANDARD.encode(&thumb_data);
-                        return Some(format!("data:image/jpeg;base64,{}", base64_str));
+                        return Some((format!("data:image/jpeg;base64,{}", base64_str), rating));
                     }
                 }
                 None
             })();
 
-            if let Some(thumbnail_data) = result {
+            if let Some((thumbnail_data, rating)) = result {
                 let _ = app_handle_clone.emit(
                     "thumbnail-generated",
-                    serde_json::json!({ "path": path_str, "data": thumbnail_data }),
+                    serde_json::json!({ "path": path_str, "data": thumbnail_data, "rating": rating }),
                 );
             }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -75,13 +75,14 @@ function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
   );
 }
 
-
 function App() {
   const [rootPath, setRootPath] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
   const [currentFolderPath, setCurrentFolderPath] = useState(null);
   const [folderTree, setFolderTree] = useState(null);
-  const [imageList, setImageList] = useState([]);
+  const [imageList, setImageList] = useState([]); // Now stores { path: string, modified: number }
+  const [imageRatings, setImageRatings] = useState({});
+  const [sortCriteria, setSortCriteria] = useState({ key: 'name', order: 'asc' });
   const [selectedImage, setSelectedImage] = useState(null);
   const [multiSelectedPaths, setMultiSelectedPaths] = useState([]);
   const [libraryActivePath, setLibraryActivePath] = useState(null);
@@ -118,11 +119,36 @@ function App() {
 
   const [isLibraryExportPanelVisible, setIsLibraryExportPanelVisible] = useState(false);
 
-  const { thumbnails } = useThumbnails(imageList);
+  const imagePathList = useMemo(() => imageList.map(f => f.path), [imageList]);
+  const { thumbnails } = useThumbnails(imagePathList);
 
   const loaderTimeoutRef = useRef(null);
   const folderTreeTimeoutRef = useRef(null);
   const transformWrapperRef = useRef(null);
+
+  const sortedImageList = useMemo(() => {
+    const list = [...imageList];
+    list.sort((a, b) => {
+        const { key, order } = sortCriteria;
+        let comparison = 0;
+        switch (key) {
+            case 'date':
+                comparison = a.modified - b.modified; 
+                break;
+            case 'rating':
+                const ratingA = imageRatings[a.path] || 0;
+                const ratingB = imageRatings[b.path] || 0;
+                comparison = ratingA - ratingB;
+                break;
+            case 'name':
+            default:
+                comparison = a.path.localeCompare(b.path);
+                break;
+        }
+        return order === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [imageList, sortCriteria, imageRatings]);
 
   const handleRightPanelSelect = (panelId) => {
     if (panelId === activeRightPanel) {
@@ -158,10 +184,10 @@ function App() {
         
         event.preventDefault();
 
-        if (imageList.length > 0) {
-          setMultiSelectedPaths(imageList);
+        if (sortedImageList.length > 0) {
+          setMultiSelectedPaths(sortedImageList.map(f => f.path));
           if (!selectedImage) {
-            setLibraryActivePath(imageList[imageList.length - 1]);
+            setLibraryActivePath(sortedImageList[sortedImageList.length - 1].path);
           }
         }
       }
@@ -171,7 +197,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [imageList, selectedImage]);
+  }, [sortedImageList, selectedImage]);
 
   useEffect(() => {
     let isEffectActive = true;
@@ -188,6 +214,14 @@ function App() {
       }),
       listen('histogram-update', (event) => {
         if (isEffectActive) setHistogram(event.payload);
+      }),
+      listen('thumbnail-generated', (event) => {
+        if (isEffectActive) {
+          const { path, rating } = event.payload;
+          if (rating !== undefined) {
+            setImageRatings(prev => ({ ...prev, [path]: rating }));
+          }
+        }
       }),
       listen('folder-tree-update', (event) => {
         if (isEffectActive) {
@@ -219,7 +253,7 @@ function App() {
       if (loaderTimeoutRef.current) clearTimeout(loaderTimeoutRef.current);
       if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
     };
-  }, [loadingTimeout, selectedImage?.path]);
+  }, [loadingTimeout]);
 
   useEffect(() => {
     if (libraryActivePath) {
@@ -256,14 +290,14 @@ function App() {
       setError(`Processing failed: ${err}`);
       setIsAdjusting(false);
     });
-  }, 100), [selectedImage]);
+  }, 100), [selectedImage?.isReady]);
 
   const debouncedGenerateUncroppedPreview = useCallback(debounce((currentAdjustments) => {
     if (!selectedImage?.isReady) return;
     invoke('generate_uncropped_preview', { jsAdjustments: currentAdjustments }).catch(err => {
       console.error("Failed to generate uncropped preview:", err);
     });
-  }, 150), [selectedImage]);
+  }, 150), [selectedImage?.isReady]);
 
   const debouncedSave = useCallback(debounce((path, adjustmentsToSave) => {
     invoke('save_metadata_and_update_thumbnail', { path, adjustments: adjustmentsToSave }).catch(err => {
@@ -281,7 +315,7 @@ function App() {
       applyAdjustments.cancel();
       debouncedSave.cancel();
     }
-  }, [adjustments, selectedImage, applyAdjustments, debouncedSave]);
+  }, [adjustments, selectedImage?.path, selectedImage?.isReady, applyAdjustments, debouncedSave]);
 
   useEffect(() => {
     if (activeRightPanel === 'crop' && selectedImage?.isReady) {
@@ -290,7 +324,7 @@ function App() {
     return () => {
       debouncedGenerateUncroppedPreview.cancel();
     }
-  }, [adjustments, activeRightPanel, selectedImage, debouncedGenerateUncroppedPreview]);
+  }, [adjustments, activeRightPanel, selectedImage?.isReady, debouncedGenerateUncroppedPreview]);
 
   useEffect(() => {
     if (adjustments.aspectRatio !== null && adjustments.crop === null && selectedImage?.width && selectedImage?.height) {
@@ -309,7 +343,7 @@ function App() {
         crop: newPixelCrop,
       }));
     }
-  }, [adjustments.aspectRatio, adjustments.crop, selectedImage]);
+  }, [adjustments.aspectRatio, adjustments.crop, selectedImage?.width, selectedImage?.height]);
 
   const handleOpenFolder = async () => {
     try {
@@ -335,6 +369,7 @@ function App() {
     setRootPath(null);
     setCurrentFolderPath(null);
     setImageList([]);
+    setImageRatings({});
     setFolderTree(null);
     setMultiSelectedPaths([]);
     setLibraryActivePath(null);
@@ -376,6 +411,7 @@ function App() {
 
       const [files] = await Promise.all(promises);
       setImageList(files);
+      setImageRatings({});
       setMultiSelectedPaths([]);
       setLibraryActivePath(null);
 
@@ -401,12 +437,12 @@ function App() {
     const { shiftAnchor, onSimpleClick, updateLibraryActivePath } = options;
 
     if (shiftKey && shiftAnchor) {
-      const lastIndex = imageList.indexOf(shiftAnchor);
-      const currentIndex = imageList.indexOf(path);
+      const lastIndex = sortedImageList.findIndex(f => f.path === shiftAnchor);
+      const currentIndex = sortedImageList.findIndex(f => f.path === path);
       if (lastIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastIndex, currentIndex);
         const end = Math.max(lastIndex, currentIndex);
-        const range = imageList.slice(start, end + 1);
+        const range = sortedImageList.slice(start, end + 1).map(f => f.path);
 
         const baseSelection = isCtrlPressed ? multiSelectedPaths : [shiftAnchor];
         const newSelection = Array.from(new Set([...baseSelection, ...range]));
@@ -586,14 +622,38 @@ function App() {
   };
 
   const handleRate = useCallback((newRating) => {
-    if (selectedImage) {
-      setAdjustments(prev => ({ ...prev, rating: newRating }));
-    } else if (libraryActivePath) {
-      const newAdjustments = { ...libraryActiveAdjustments, rating: newRating };
-      setLibraryActiveAdjustments(newAdjustments);
-      invoke('save_metadata_and_update_thumbnail', { path: libraryActivePath, adjustments: newAdjustments });
+    const pathsToRate = multiSelectedPaths.length > 0 
+      ? multiSelectedPaths 
+      : (selectedImage ? [selectedImage.path] : []);
+
+    if (pathsToRate.length === 0) {
+      return;
     }
-  }, [selectedImage, libraryActivePath, libraryActiveAdjustments]);
+
+    setImageRatings(prev => {
+      const newRatings = { ...prev };
+      pathsToRate.forEach(path => {
+        newRatings[path] = newRating;
+      });
+      return newRatings;
+    });
+
+    if (selectedImage && pathsToRate.includes(selectedImage.path)) {
+      setAdjustments(prev => ({ ...prev, rating: newRating }));
+    }
+
+    if (libraryActivePath && pathsToRate.includes(libraryActivePath)) {
+      setLibraryActiveAdjustments(prev => ({ ...prev, rating: newRating }));
+    }
+
+    invoke('apply_adjustments_to_paths', { paths: pathsToRate, adjustments: { rating: newRating } })
+      .catch(err => {
+        console.error("Failed to apply rating to paths:", err);
+        setError(`Failed to apply rating: ${err}`);
+      });
+
+  }, [multiSelectedPaths, selectedImage, libraryActivePath]);
+
 
   const handleZoomChange = useCallback((newZoom) => {
     if (transformWrapperRef.current) {
@@ -612,8 +672,12 @@ function App() {
   }, []);
 
   const handleClearSelection = () => {
-    setMultiSelectedPaths([]);
-    setLibraryActivePath(null);
+    if (selectedImage) {
+      setMultiSelectedPaths([selectedImage.path]);
+    } else {
+      setMultiSelectedPaths([]);
+      setLibraryActivePath(null);
+    }
   };
 
   const handleResetAdjustments = () => {
@@ -680,14 +744,16 @@ function App() {
               onZoomChange={handleZoomChange}
               minZoom={0.7}
               maxZoom={10}
-              imageList={imageList}
+              imageList={sortedImageList}
               selectedImage={selectedImage}
               onImageSelect={handleImageClick}
               multiSelectedPaths={multiSelectedPaths}
               thumbnails={thumbnails}
+              imageRatings={imageRatings}
               isFilmstripVisible={isFilmstripVisible}
               setIsFilmstripVisible={setIsFilmstripVisible}
               isLoading={isViewLoading}
+              onClearSelection={handleClearSelection}
             />
           </div>
 
@@ -767,7 +833,7 @@ function App() {
         )}
         <div className="flex-1 flex flex-col min-w-0 gap-2">
           <MainLibrary
-            imageList={imageList}
+            imageList={sortedImageList}
             onImageClick={handleLibraryImageSingleClick}
             onImageDoubleClick={handleImageSelect}
             multiSelectedPaths={multiSelectedPaths}
@@ -778,10 +844,13 @@ function App() {
             isTreeLoading={isTreeLoading}
             isLoading={isViewLoading}
             thumbnails={thumbnails}
+            imageRatings={imageRatings}
             appSettings={appSettings}
             onContinueSession={handleContinueSession}
             onGoHome={handleGoHome}
             onClearSelection={handleClearSelection}
+            sortCriteria={sortCriteria}
+            setSortCriteria={setSortCriteria}
           />
           {rootPath && <BottomBar
             isLibraryView={true}

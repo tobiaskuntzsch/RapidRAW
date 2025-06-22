@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+use image::codecs::jpeg::JpegEncoder;
 use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
@@ -101,9 +102,13 @@ fn is_raw_file(path: &str) -> bool {
 }
 
 fn encode_to_base64(image: &DynamicImage, quality: u8) -> Result<String, String> {
+    // Convert RGBA to RGB before encoding, as JPEG doesn't support alpha.
+    let rgb_image = image.to_rgb8();
+
     let mut buf = Cursor::new(Vec::new());
-    image.write_to(&mut buf, image::ImageOutputFormat::Jpeg(quality))
-        .map_err(|e| e.to_string())?;
+    let encoder = JpegEncoder::new_with_quality(&mut buf, quality);
+    rgb_image.write_with_encoder(encoder).map_err(|e| e.to_string())?;
+    
     let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
     Ok(format!("data:image/jpeg;base64,{}", base64_str))
 }
@@ -389,15 +394,21 @@ fn export_image(
     let output_path = std::path::Path::new(&path);
     let extension = output_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
 
-    let format = match extension.as_str() {
-        "jpg" | "jpeg" => image::ImageOutputFormat::Jpeg(export_settings.jpeg_quality),
-        "png" => image::ImageOutputFormat::Png,
-        "tiff" => image::ImageOutputFormat::Tiff,
+    let mut file = fs::File::create(&path).map_err(|e| e.to_string())?;
+    match extension.as_str() {
+        "jpg" | "jpeg" => {
+            let rgb_image = final_image.to_rgb8();
+            let encoder = JpegEncoder::new_with_quality(&mut file, export_settings.jpeg_quality);
+            rgb_image.write_with_encoder(encoder).map_err(|e| e.to_string())?;
+        }
+        "png" => {
+            final_image.write_to(&mut file, image::ImageFormat::Png).map_err(|e| e.to_string())?;
+        }
+        "tiff" => {
+            final_image.write_to(&mut file, image::ImageFormat::Tiff).map_err(|e| e.to_string())?;
+        }
         _ => return Err(format!("Unsupported file extension: {}", extension)),
     };
-
-    let mut file = fs::File::create(&path).map_err(|e| e.to_string())?;
-    final_image.write_to(&mut file, format).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -470,20 +481,26 @@ fn batch_export_images(
             let new_filename = format!("{}_edited.{}", original_stem, output_format);
             let output_path = output_folder_path.join(new_filename);
 
-            let format = match output_format.as_str() {
-                "jpg" | "jpeg" => image::ImageOutputFormat::Jpeg(export_settings.jpeg_quality),
-                "png" => image::ImageOutputFormat::Png,
-                "tiff" => image::ImageOutputFormat::Tiff,
+            let mut file = fs::File::create(&output_path).map_err(|e| e.to_string())?;
+            match output_format.as_str() {
+                "jpg" | "jpeg" => {
+                    let rgb_image = final_image.to_rgb8();
+                    let encoder = JpegEncoder::new_with_quality(&mut file, export_settings.jpeg_quality);
+                    rgb_image.write_with_encoder(encoder).map_err(|e| e.to_string())?;
+                }
+                "png" => {
+                    final_image.write_to(&mut file, image::ImageFormat::Png).map_err(|e| e.to_string())?;
+                }
+                "tiff" => {
+                    final_image.write_to(&mut file, image::ImageFormat::Tiff).map_err(|e| e.to_string())?;
+                }
                 _ => return Err(format!("Unsupported file format: {}", output_format)),
             };
 
-            let mut file = fs::File::create(&output_path).map_err(|e| e.to_string())?;
-            final_image.write_to(&mut file, format).map_err(|e| e.to_string())?;
             Ok(())
         })();
 
         if let Err(e) = processing_result {
-            // Log error but continue with the rest of the batch
             eprintln!("Failed to export {}: {}", image_path_str, e);
         }
     }
@@ -690,7 +707,7 @@ fn generate_preset_preview(
     let (full_w, _full_h) = (loaded_image.full_width, loaded_image.full_height);
     
     let cropped_image = image_processing::apply_crop(original_image, &js_adjustments["crop"]);
-    let (cropped_w, _cropped_h) = cropped_image.dimensions();
+    let (_cropped_w, _cropped_h) = cropped_image.dimensions();
 
     const PRESET_PREVIEW_DIM: u32 = 200;
     let preview_base = cropped_image.thumbnail(PRESET_PREVIEW_DIM, PRESET_PREVIEW_DIM);

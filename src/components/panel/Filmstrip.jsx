@@ -1,22 +1,23 @@
 import { useEffect, useRef } from 'react';
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, Star } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Filmstrip({ 
   imageList, 
   selectedImage, 
   onImageSelect, 
   thumbnails,
-  multiSelectedPaths
+  multiSelectedPaths,
+  imageRatings,
+  onClearSelection, // <-- ADDED PROP
 }) {
   const filmstripRef = useRef(null);
 
-  // Effect to handle horizontal scrolling with the mouse wheel
   useEffect(() => {
     const element = filmstripRef.current;
     if (!element) return;
 
     const onWheel = (e) => {
-      // We prevent the default vertical scroll and scroll horizontally instead.
       e.preventDefault();
       element.scrollLeft += e.deltaY;
     };
@@ -26,69 +27,88 @@ export default function Filmstrip({
     return () => {
       element.removeEventListener('wheel', onWheel);
     };
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
-  // Effect to scroll the currently selected image into view
   useEffect(() => {
     if (selectedImage && filmstripRef.current) {
-      const selectedIndex = imageList.findIndex(path => path === selectedImage.path);
+      const selectedIndex = imageList.findIndex(img => img.path === selectedImage.path);
 
       if (selectedIndex !== -1) {
-        // The scrollable div has one child: the flex container for the images
-        const flexContainer = filmstripRef.current.children[0];
-        const activeElement = flexContainer?.children[selectedIndex];
+        const activeElement = filmstripRef.current.querySelector(`[data-path="${CSS.escape(selectedImage.path)}"]`);
 
         if (activeElement) {
-          // A small timeout ensures the scroll happens after the element is fully rendered,
-          // which is useful for the initial load.
           setTimeout(() => {
             activeElement.scrollIntoView({
               behavior: 'smooth',
               block: 'nearest',
               inline: 'center',
             });
-          }, 100);
+          }, 320); 
         }
       }
     }
-  }, [selectedImage, imageList]); // Re-run whenever the selected image or image list changes
+  }, [selectedImage, imageList]);
 
   return (
-    <div ref={filmstripRef} className="h-full overflow-x-auto overflow-y-hidden p-1">
-      <div className="flex h-full gap-2">
-        {imageList.map((path) => {
-          const isActive = selectedImage?.path === path;
-          const isSelected = multiSelectedPaths.includes(path);
-          const thumbData = thumbnails[path];
-          
-          const ringClass = isActive
-            ? 'ring-2 ring-accent'
-            : isSelected
-            ? 'ring-2 ring-gray-400'
-            : 'hover:ring-2 hover:ring-hover-color';
+    <div 
+      ref={filmstripRef} 
+      className="h-full overflow-x-auto overflow-y-hidden p-1"
+      onClick={onClearSelection} // <-- ADDED ONCLICK TO CONTAINER
+    >
+      <motion.div className="flex h-full gap-2">
+        <AnimatePresence>
+          {imageList.map((imageFile) => {
+            const path = imageFile.path;
+            const isActive = selectedImage?.path === path;
+            const isSelected = multiSelectedPaths.includes(path);
+            const thumbData = thumbnails[path];
+            const rating = imageRatings?.[path] || 0;
+            
+            const ringClass = isActive
+              ? 'ring-2 ring-accent'
+              : isSelected
+              ? 'ring-2 ring-gray-400'
+              : 'hover:ring-2 hover:ring-hover-color';
 
-          return (
-            <div
-              key={path}
-              onClick={(e) => onImageSelect(path, e)}
-              className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${ringClass}`}
-            >
-              {thumbData ? (
-                <img
-                  src={thumbData}
-                  alt={path.split(/[\\/]/).pop()}
-                  className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-surface">
-                  <ImageIcon size={24} className="text-text-secondary animate-pulse" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            return (
+              <motion.div
+                key={path}
+                layout
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                onClick={(e) => {
+                  e.stopPropagation(); // <-- STOP PROPAGATION
+                  onImageSelect(path, e);
+                }}
+                className={`h-full aspect-square rounded-md overflow-hidden cursor-pointer flex-shrink-0 group relative transition-all duration-150 ${ringClass}`}
+                data-path={path}
+                style={{ zIndex: isActive ? 2 : isSelected ? 1 : 'auto' }}
+              >
+                {thumbData ? (
+                  <img
+                    src={thumbData}
+                    alt={path.split(/[\\/]/).pop()}
+                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-surface">
+                    <ImageIcon size={24} className="text-text-secondary animate-pulse" />
+                  </div>
+                )}
+                {rating > 0 && (
+                  <div className="absolute top-1 right-1 bg-primary rounded-full px-1.5 py-0.5 text-xs text-white flex items-center gap-1 backdrop-blur-sm">
+                    <span>{rating}</span>
+                    <Star size={10} className="fill-white text-white" />
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }

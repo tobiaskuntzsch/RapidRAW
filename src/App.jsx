@@ -399,21 +399,21 @@ function App() {
       setError(`Processing failed: ${err}`);
       setIsAdjusting(false);
     });
-  }, 100), [selectedImage?.isReady]);
+  }, 50), [selectedImage?.isReady]);
 
   const debouncedGenerateUncroppedPreview = useCallback(debounce((currentAdjustments) => {
     if (!selectedImage?.isReady) return;
     invoke('generate_uncropped_preview', { jsAdjustments: currentAdjustments }).catch(err => {
       console.error("Failed to generate uncropped preview:", err);
     });
-  }, 150), [selectedImage?.isReady]);
+  }, 100), [selectedImage?.isReady]);
 
   const debouncedSave = useCallback(debounce((path, adjustmentsToSave) => {
     invoke('save_metadata_and_update_thumbnail', { path, adjustments: adjustmentsToSave }).catch(err => {
         console.error("Auto-save failed:", err);
         setError(`Failed to save changes: ${err}`);
     });
-  }, 500), []);
+  }, 300), []);
 
   useEffect(() => {
     if (selectedImage?.isReady) {
@@ -550,13 +550,25 @@ function App() {
     });
   };
 
-  const handleImageSelect = async (path) => {
+  const handleImageSelect = (path) => {
     if (selectedImage?.path === path) return;
 
     applyAdjustments.cancel();
     debouncedSave.cancel();
 
-    setSelectedImage({ path, originalUrl: null, isReady: false, width: 0, height: 0, metadata: null, exif: null, isRaw: false });
+    const thumbnail = thumbnails[path];
+
+    setSelectedImage({
+      path,
+      thumbnailUrl: thumbnail,
+      isReady: false,
+      originalUrl: null,
+      width: 0,
+      height: 0,
+      metadata: null,
+      exif: null,
+      isRaw: false,
+    });
     setMultiSelectedPaths([path]);
     setLibraryActivePath(null);
     setIsViewLoading(true);
@@ -572,50 +584,72 @@ function App() {
     }
     setZoom(1);
     setIsLibraryExportPanelVisible(false);
-
-    try {
-      const loadImageResult = await invoke('load_image', { path });
-      const histData = await invoke('generate_histogram');
-
-      setSelectedImage(currentSelected => {
-        if (currentSelected && currentSelected.path === path) {
-          setHistogram(histData);
-          return {
-            ...currentSelected,
-            originalUrl: loadImageResult.original_base64,
-            width: loadImageResult.width,
-            height: loadImageResult.height,
-            metadata: loadImageResult.metadata,
-            exif: loadImageResult.exif,
-            isRaw: loadImageResult.is_raw,
-            isReady: true
-          };
-        }
-        return currentSelected;
-      });
-
-      if (loadImageResult.metadata.adjustments && !loadImageResult.metadata.adjustments.is_null) {
-        const loadedAdjustments = loadImageResult.metadata.adjustments;
-        setAdjustments(prev => ({
-          ...INITIAL_ADJUSTMENTS,
-          ...prev,
-          ...loadedAdjustments,
-          hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadedAdjustments.hsl },
-          curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadedAdjustments.curves },
-          masks: loadedAdjustments.masks || [],
-        }));
-      } else {
-        setAdjustments(INITIAL_ADJUSTMENTS);
-      }
-
-    } catch (err) {
-      console.error("Failed to load image:", err);
-      setError(`Failed to load image: ${err}`);
-      setSelectedImage(null);
-    } finally {
-      setIsViewLoading(false);
-    }
   };
+
+  useEffect(() => {
+    if (selectedImage && !selectedImage.isReady && selectedImage.path) {
+      let isEffectActive = true;
+
+      const loadFullImageData = async () => {
+        try {
+          const loadImageResult = await invoke('load_image', { path: selectedImage.path });
+          if (!isEffectActive) return;
+
+          const histData = await invoke('generate_histogram');
+          if (!isEffectActive) return;
+
+          setSelectedImage(currentSelected => {
+            if (currentSelected && currentSelected.path === selectedImage.path) {
+              return {
+                ...currentSelected,
+                originalUrl: loadImageResult.original_base64,
+                width: loadImageResult.width,
+                height: loadImageResult.height,
+                metadata: loadImageResult.metadata,
+                exif: loadImageResult.exif,
+                isRaw: loadImageResult.is_raw,
+                isReady: true,
+              };
+            }
+            return currentSelected;
+          });
+
+          if (loadImageResult.metadata.adjustments && !loadImageResult.metadata.adjustments.is_null) {
+            const loadedAdjustments = loadImageResult.metadata.adjustments;
+            setAdjustments(prev => ({
+              ...INITIAL_ADJUSTMENTS,
+              ...prev,
+              ...loadedAdjustments,
+              hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadedAdjustments.hsl },
+              curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadedAdjustments.curves },
+              masks: loadedAdjustments.masks || [],
+            }));
+          } else {
+            setAdjustments(INITIAL_ADJUSTMENTS);
+          }
+          
+          setHistogram(histData);
+
+        } catch (err) {
+          if (isEffectActive) {
+            console.error("Failed to load image:", err);
+            setError(`Failed to load image: ${err}`);
+            setSelectedImage(null);
+          }
+        } finally {
+          if (isEffectActive) {
+            setIsViewLoading(false);
+          }
+        }
+      };
+
+      loadFullImageData();
+
+      return () => {
+        isEffectActive = false;
+      };
+    }
+  }, [selectedImage?.path, selectedImage?.isReady]);
 
   const handleBackToLibrary = () => {
     const lastActivePath = selectedImage?.path;

@@ -151,7 +151,7 @@ pub fn get_folder_tree(path: String, app_handle: tauri::AppHandle) -> Result<(),
 pub fn get_sidecar_path(image_path: &str) -> PathBuf {
     let path = PathBuf::from(image_path);
     let original_filename = path.file_name().unwrap_or_default().to_string_lossy();
-    let new_filename = format!("{}.rrd", original_filename);
+    let new_filename = format!("{}.rrdata", original_filename);
     path.with_file_name(new_filename)
 }
 

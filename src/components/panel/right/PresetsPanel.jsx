@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { usePresets } from '../../../hooks/usePresets';
 import { useContextMenu } from '../../../context/ContextMenuContext';
-import { Plus, Loader2, FileUp, FileDown } from 'lucide-react';
+import { Plus, Loader2, FileUp, FileDown, Edit, Trash2 } from 'lucide-react';
 import AddPresetModal from '../../modals/AddPresetModal';
 import RenamePresetModal from '../../modals/RenamePresetModal';
 import { INITIAL_ADJUSTMENTS } from '../../../App';
@@ -17,7 +17,6 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
     renamePreset,
     importPresetsFromFile,
     exportPresetsToFile,
-    refreshPresets,
   } = usePresets(adjustments);
 
   const { showContextMenu } = useContextMenu();
@@ -93,31 +92,27 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
       }
     } catch (error) {
       console.error('Failed to import presets:', error);
-      // TODO: Show user-friendly error message
     }
   };
 
   const handleExportPreset = async (presetToExport) => {
     try {
       const filePath = await saveDialog({
-        defaultPath: `${presetToExport.name}.rrpreset`.replace(/[<>:"/\\|?*]/g, '_'), // Sanitize filename
+        defaultPath: `${presetToExport.name}.rrpreset`.replace(/[<>:"/\\|?*]/g, '_'),
         filters: [{ name: 'Preset File', extensions: ['rrpreset'] }],
         title: 'Export Preset',
       });
 
       if (filePath) {
         await exportPresetsToFile([presetToExport], filePath);
-        // TODO: Show user-friendly success message
       }
     } catch (error) {
       console.error('Failed to export preset:', error);
-      // TODO: Show user-friendly error message
     }
   };
   
   const handleExportAllPresets = async () => {
     if (presets.length === 0) {
-      // TODO: Optionally show message that there are no presets to export
       console.log("No presets to export.");
       return;
     }
@@ -130,33 +125,38 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
 
       if (filePath) {
         await exportPresetsToFile(presets, filePath);
-        // TODO: Show user-friendly success message
       }
     } catch (error) {
       console.error('Failed to export all presets:', error);
-      // TODO: Show user-friendly error message
     }
   };
 
   const handleContextMenu = (event, preset) => {
     event.preventDefault();
+    event.stopPropagation();
+    
     const options = [
       {
-        label: 'Rename',
+        label: 'Rename Preset',
+        icon: Edit,
         onClick: () => {
           setRenameModalState({ isOpen: true, preset: preset });
         },
       },
       {
-        label: 'Export This Preset',
+        label: 'Export Preset',
+        icon: FileDown,
         onClick: () => handleExportPreset(preset),
       },
+      { type: 'separator' },
       {
-        label: 'Delete',
-        onClick: () => deletePreset(preset.id),
+        label: 'Delete Preset',
+        icon: Trash2,
         isDestructive: true,
+        onClick: () => deletePreset(preset.id),
       },
     ];
+    
     showContextMenu(event.clientX, event.clientY, options);
   };
 

@@ -6,7 +6,7 @@ import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
 import { centerCrop, makeAspectCrop } from 'react-image-crop';
 import clsx from 'clsx';
-import { Copy, ClipboardPaste, RotateCcw } from 'lucide-react';
+import { Copy, ClipboardPaste, RotateCcw, Star, Trash2, Folder, Edit, Check, X } from 'lucide-react';
 import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
@@ -94,7 +94,7 @@ function App() {
   const [appSettings, setAppSettings] = useState(null);
   const [currentFolderPath, setCurrentFolderPath] = useState(null);
   const [folderTree, setFolderTree] = useState(null);
-  const [imageList, setImageList] = useState([]); // Now stores { path: string, modified: number }
+  const [imageList, setImageList] = useState([]);
   const [imageRatings, setImageRatings] = useState({});
   const [sortCriteria, setSortCriteria] = useState({ key: 'name', order: 'asc' });
   const [selectedImage, setSelectedImage] = useState(null);
@@ -220,6 +220,69 @@ function App() {
         setAppSettings({ last_root_path: null });
       });
   }, []);
+
+  const handleSettingsChange = useCallback((newSettings) => {
+    setAppSettings(newSettings);
+    invoke('save_settings', { settings: newSettings })
+      .catch(err => console.error("Failed to save settings:", err));
+  }, []);
+
+  const handleSelectSubfolder = useCallback(async (path, isNewRoot = false) => {
+    setIsViewLoading(true);
+    if (loadingTimeout) clearTimeout(loadingTimeout);
+
+    try {
+      setCurrentFolderPath(path);
+      const promises = [invoke('list_images_in_dir', { path })];
+
+      if (isNewRoot) {
+        setIsTreeLoading(true);
+        setFolderTree(null);
+
+        handleSettingsChange({ ...appSettings, last_root_path: path });
+
+        const timeoutId = setTimeout(() => {
+          setIsTreeLoading(false);
+          setError('Folder tree loading timed out. Please try again.');
+        }, 10000);
+
+        setLoadingTimeout(timeoutId);
+        folderTreeTimeoutRef.current = timeoutId;
+
+        invoke('get_folder_tree', { path }).catch(err => {
+          clearTimeout(timeoutId);
+          setIsTreeLoading(false);
+          setError(`Failed to load folder tree: ${err}`);
+        });
+      }
+
+      const [files] = await Promise.all(promises);
+      setImageList(files);
+      setImageRatings({});
+      setMultiSelectedPaths([]);
+      setLibraryActivePath(null);
+
+      if (selectedImage) {
+        setSelectedImage(null);
+        setFinalPreviewUrl(null);
+        setUncroppedAdjustedPreviewUrl(null);
+        setHistogram(null);
+      }
+    } catch (err)
+    {
+      console.error("Failed to load folder contents:", err);
+      setError("Failed to load images from the selected folder.");
+      setIsTreeLoading(false);
+    } finally {
+      setIsViewLoading(false);
+    }
+  }, [appSettings, handleSettingsChange, loadingTimeout, selectedImage]);
+
+  const handleLibraryRefresh = useCallback(() => {
+    if (currentFolderPath) {
+      handleSelectSubfolder(currentFolderPath, false);
+    }
+  }, [currentFolderPath, handleSelectSubfolder]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -420,61 +483,6 @@ function App() {
     setMultiSelectedPaths([]);
     setLibraryActivePath(null);
     setIsLibraryExportPanelVisible(false);
-  };
-
-  const handleSelectSubfolder = async (path, isNewRoot = false) => {
-    setIsViewLoading(true);
-    if (loadingTimeout) clearTimeout(loadingTimeout);
-
-    try {
-      setCurrentFolderPath(path);
-      const promises = [invoke('list_images_in_dir', { path })];
-
-      if (isNewRoot) {
-        setIsTreeLoading(true);
-        setFolderTree(null);
-
-        invoke('save_settings', { settings: { last_root_path: path } })
-          .then(() => {
-            setAppSettings(prev => ({ ...prev, last_root_path: path }));
-          })
-          .catch(err => console.error("Failed to save settings:", err));
-
-        const timeoutId = setTimeout(() => {
-          setIsTreeLoading(false);
-          setError('Folder tree loading timed out. Please try again.');
-        }, 10000);
-
-        setLoadingTimeout(timeoutId);
-        folderTreeTimeoutRef.current = timeoutId;
-
-        invoke('get_folder_tree', { path }).catch(err => {
-          clearTimeout(timeoutId);
-          setIsTreeLoading(false);
-          setError(`Failed to load folder tree: ${err}`);
-        });
-      }
-
-      const [files] = await Promise.all(promises);
-      setImageList(files);
-      setImageRatings({});
-      setMultiSelectedPaths([]);
-      setLibraryActivePath(null);
-
-      if (selectedImage) {
-        setSelectedImage(null);
-        setFinalPreviewUrl(null);
-        setUncroppedAdjustedPreviewUrl(null);
-        setHistogram(null);
-      }
-    } catch (err)
-    {
-      console.error("Failed to load folder contents:", err);
-      setError("Failed to load images from the selected folder.");
-      setIsTreeLoading(false);
-    } finally {
-      setIsViewLoading(false);
-    }
   };
 
   const handleMultiSelectClick = (path, event, options) => {
@@ -784,20 +792,41 @@ const handleZoomChange = useCallback((newZoomValue) => {
     }
 
     const selectionCount = finalSelection.length;
-    const pasteLabel = selectionCount > 1 
-        ? `Paste Adjustments to ${selectionCount} Images` 
-        : 'Paste Adjustments';
-    const resetLabel = selectionCount > 1
-        ? `Reset Adjustments on ${selectionCount} Images`
-        : 'Reset Adjustments';
+    const isSingleSelection = selectionCount === 1;
+    
+    // Check if the right-clicked image is the one currently being edited.
+    const isEditingThisImage = selectedImage?.path === path;
+
+    const pasteLabel = isSingleSelection
+        ? 'Paste Adjustments'
+        : `Paste Adjustments to ${selectionCount} Images`;
+    const resetLabel = isSingleSelection
+        ? 'Reset Adjustments'
+        : `Reset Adjustments on ${selectionCount} Images`;
+    const deleteLabel = isSingleSelection
+        ? 'Delete Image'
+        : `Delete ${selectionCount} Images`;
 
     const options = [
+      // Conditionally add the "Edit Photo" item and its separator.
+      ...(!isEditingThisImage ? [
+        {
+          label: 'Edit Photo',
+          icon: Edit,
+          disabled: !isSingleSelection,
+          onClick: () => handleImageSelect(finalSelection[0]),
+        },
+        { type: 'separator' },
+      ] : []),
+      
       {
         label: 'Copy Adjustments',
         icon: Copy,
+        disabled: !isSingleSelection,
         onClick: async () => {
           try {
-            const metadata = await invoke('load_metadata', { path });
+            const sourcePath = finalSelection[0];
+            const metadata = await invoke('load_metadata', { path: sourcePath });
             if (metadata.adjustments && !metadata.adjustments.is_null) {
               const { crop, masks, aspectRatio, ...rest } = metadata.adjustments;
               setCopiedAdjustments(rest);
@@ -817,17 +846,9 @@ const handleZoomChange = useCallback((newZoomValue) => {
         disabled: copiedAdjustments === null,
         onClick: () => {
           if (!copiedAdjustments || finalSelection.length === 0) return;
-
-          // If the currently edited image is part of the paste operation,
-          // update the main adjustments state immediately to refresh the editor view.
           if (selectedImage && finalSelection.includes(selectedImage.path)) {
-            setAdjustments(prev => ({
-              ...prev, // Keep existing crop, masks, etc.
-              ...copiedAdjustments, // Apply the pasted settings
-            }));
+            setAdjustments(prev => ({ ...prev, ...copiedAdjustments }));
           }
-
-          // This saves the metadata for all selected files (including the current one)
           invoke('apply_adjustments_to_paths', { paths: finalSelection, adjustments: copiedAdjustments })
             .catch(err => {
               console.error("Failed to paste adjustments:", err);
@@ -835,10 +856,28 @@ const handleZoomChange = useCallback((newZoomValue) => {
             });
         },
       },
+      { type: 'separator' },
+      {
+        label: 'Set Rating',
+        icon: Star,
+        submenu: [0, 1, 2, 3, 4, 5].map(rating => ({
+          label: `${rating} Star${rating !== 1 ? 's' : ''}`,
+          onClick: () => handleRate(rating),
+        }))
+      },
+      { type: 'separator' },
+      {
+        label: 'Show in File Explorer',
+        icon: Folder,
+        disabled: !isSingleSelection,
+        onClick: () => {
+          invoke('show_in_finder', { path: finalSelection[0] })
+            .catch(err => setError(`Could not show file in explorer: ${err}`));
+        }
+      },
       {
         label: resetLabel,
         icon: RotateCcw,
-        isDestructive: true,
         onClick: () => {
           if (finalSelection.length === 0) return;
           invoke('reset_adjustments_for_paths', { paths: finalSelection })
@@ -855,6 +894,32 @@ const handleZoomChange = useCallback((newZoomValue) => {
               setError(`Failed to reset adjustments: ${err}`);
             });
         },
+      },
+      {
+        label: deleteLabel,
+        icon: Trash2,
+        isDestructive: true,
+        submenu: [
+          {
+            label: 'Cancel',
+            icon: X,
+            onClick: () => {},
+          },
+          {
+            label: `Delete ${isSingleSelection ? '' : `${selectionCount} Images`}`,
+            icon: Check,
+            isDestructive: true,
+            onClick: async () => {
+              try {
+                await invoke('delete_files_from_disk', { paths: finalSelection });
+                handleLibraryRefresh();
+              } catch (err) {
+                console.error("Failed to delete files:", err);
+                setError(`Failed to delete files: ${err}`);
+              }
+            },
+          },
+        ],
       },
     ];
 
@@ -1033,6 +1098,8 @@ const handleZoomChange = useCallback((newZoomValue) => {
             onClearSelection={handleClearSelection}
             sortCriteria={sortCriteria}
             setSortCriteria={setSortCriteria}
+            onSettingsChange={handleSettingsChange}
+            onLibraryRefresh={handleLibraryRefresh}
           />
           {rootPath && <BottomBar
             isLibraryView={true}

@@ -11,12 +11,14 @@ use std::thread;
 use std::fs;
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use image::codecs::jpeg::JpegEncoder;
 use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
+use walkdir::WalkDir;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
@@ -63,6 +65,7 @@ struct PresetFile {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct AppSettings {
     last_root_path: Option<String>,
+    editor_preview_resolution: Option<u32>,
 }
 
 #[derive(serde::Serialize)]
@@ -258,9 +261,10 @@ fn apply_adjustments(
     thread::spawn(move || {
         let (cropped_w, _cropped_h) = cropped_image_base.dimensions();
 
-        const FINAL_PREVIEW_DIM: u32 = 1920;
+        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let final_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
 
-        let final_target_dim = cropped_w.min(FINAL_PREVIEW_DIM);
+        let final_target_dim = cropped_w.min(final_preview_dim);
         let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
         
         let original_crop_width = js_adjustments["crop"]["width"].as_f64().unwrap_or(full_w as f64) as u32;
@@ -765,6 +769,96 @@ fn handle_export_presets_to_file(presets_to_export: Vec<Preset>, file_path: Stri
     fs::write(file_path, json_string).map_err(|e| format!("Failed to write preset file: {}", e))
 }
 
+#[tauri::command]
+fn clear_all_sidecars(root_path: String) -> Result<usize, String> {
+    if !Path::new(&root_path).exists() {
+        return Err(format!("Root path does not exist: {}", root_path));
+    }
+
+    let mut deleted_count = 0;
+    let walker = WalkDir::new(root_path).into_iter();
+
+    for entry in walker.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(extension) = path.extension() {
+                if extension == "rrdata" {
+                    if fs::remove_file(path).is_ok() {
+                        deleted_count += 1;
+                    } else {
+                        eprintln!("Failed to delete sidecar file: {:?}", path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(deleted_count)
+}
+
+#[tauri::command]
+fn clear_thumbnail_cache(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+    let thumb_cache_dir = cache_dir.join("thumbnails");
+
+    if thumb_cache_dir.exists() {
+        fs::remove_dir_all(&thumb_cache_dir).map_err(|e| format!("Failed to remove thumbnail cache: {}", e))?;
+    }
+    
+    fs::create_dir_all(&thumb_cache_dir).map_err(|e| format!("Failed to recreate thumbnail cache directory: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn show_in_finder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        if let Some(parent) = Path::new(&path).parent() {
+            Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        } else {
+            return Err("Could not get parent directory".into());
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_files_from_disk(paths: Vec<String>) -> Result<(), String> {
+    trash::delete_all(&paths).map_err(|e| e.to_string())?;
+
+    for path in paths {
+        let sidecar_path = get_sidecar_path(&path);
+        if sidecar_path.exists() {
+            let _ = trash::delete(&sidecar_path);
+        }
+    }
+
+    Ok(())
+}
 
 fn main() {
     tauri::Builder::default()
@@ -790,6 +884,8 @@ fn main() {
             preview_cache: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
+            show_in_finder,
+            delete_files_from_disk,
             load_image,
             apply_adjustments,
             export_image,
@@ -811,7 +907,9 @@ fn main() {
             save_settings,
             reset_adjustments_for_paths,
             handle_import_presets_from_file,
-            handle_export_presets_to_file
+            handle_export_presets_to_file,
+            clear_all_sidecars,
+            clear_thumbnail_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

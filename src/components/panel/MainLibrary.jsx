@@ -175,6 +175,8 @@ export default function MainLibrary({
   onClearSelection,
   sortCriteria,
   setSortCriteria,
+  onSettingsChange,
+  onLibraryRefresh,
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const prevFolderPathRef = useRef();
@@ -213,6 +215,9 @@ export default function MainLibrary({
             <SettingsPanel
               onBack={() => setShowSettings(false)}
               appSettings={appSettings}
+              onSettingsChange={onSettingsChange}
+              rootPath={rootPath}
+              onLibraryRefresh={onLibraryRefresh}
             />
           ) : (
             <>

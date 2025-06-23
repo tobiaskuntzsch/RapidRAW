@@ -38,15 +38,20 @@ export default function AddPresetModal({ isOpen, onClose, onSave }) {
 
   return (
     <div
-      className={`fixed inset-0 bg-black flex items-center justify-center z-50 transition-opacity duration-300 ${
-        show ? 'bg-opacity-50 opacity-100' : 'bg-opacity-0 opacity-0'
-      }`}
+      className={`
+        fixed inset-0 flex items-center justify-center z-50 
+        bg-black/30 backdrop-blur-sm 
+        transition-opacity duration-300 ease-in-out
+        ${show ? 'opacity-100' : 'opacity-0'}
+      `}
       onClick={onClose}
     >
       <div
-        className={`bg-surface rounded-lg shadow-xl p-6 w-full max-w-sm transform transition-all duration-300 ${
-          show ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
+        className={`
+          bg-surface rounded-lg shadow-xl p-6 w-full max-w-sm 
+          transform transition-all duration-300 ease-out
+          ${show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'}
+        `}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-text-primary mb-4">Save New Preset</h3>

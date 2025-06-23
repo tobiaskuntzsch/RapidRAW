@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
-import { Eye, EyeOff, ArrowLeft, Maximize, X, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, Maximize, X, Loader2, Undo, Redo } from 'lucide-react';
 import { Stage, Layer, Ellipse, Line, Transformer } from 'react-konva';
 import clsx from 'clsx';
 
@@ -214,7 +214,7 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   return null;
 });
 
-const EditorToolbar = memo(({ onBackToLibrary, selectedImage, isLoading, onToggleShowOriginal, showOriginal, onToggleFullScreen, isFullScreenLoading }) => (
+const EditorToolbar = memo(({ onBackToLibrary, selectedImage, isLoading, onToggleShowOriginal, showOriginal, onToggleFullScreen, isFullScreenLoading, onUndo, onRedo, canUndo, canRedo }) => (
   <div className="flex-shrink-0 flex justify-between items-center px-1">
     <button onClick={onBackToLibrary} className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors" title="Back to Library">
       <ArrowLeft size={20} />
@@ -225,6 +225,12 @@ const EditorToolbar = memo(({ onBackToLibrary, selectedImage, isLoading, onToggl
       {selectedImage.width > 0 && ` - ${selectedImage.width} × ${selectedImage.height}`}
     </div>
     <div className="flex items-center gap-2">
+      <button onClick={onUndo} disabled={!canUndo} className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Undo (Ctrl+Z)">
+        <Undo size={20} />
+      </button>
+      <button onClick={onRedo} disabled={!canRedo} className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Redo (Ctrl+Y)">
+        <Redo size={20} />
+      </button>
       <button onClick={onToggleShowOriginal} className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors" title={showOriginal ? "Show Edited (.)" : "Show Original (.)"}>
         {showOriginal ? <EyeOff size={20} /> : <Eye size={20} />}
       </button>
@@ -412,7 +418,8 @@ export default function Editor({
   showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
   isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel, renderedRightPanel,
   adjustments, setAdjustments, activeMaskId, onSelectMask,
-  transformWrapperRef, onZoomed, onContextMenu
+  transformWrapperRef, onZoomed, onContextMenu,
+  onUndo, onRedo, canUndo, canRedo
 }) {
   const [crop, setCrop] = useState();
   const [isMaskHovered, setIsMaskHovered] = useState(false);
@@ -519,12 +526,16 @@ export default function Editor({
           showOriginal={showOriginal}
           onToggleFullScreen={onToggleFullScreen}
           isFullScreenLoading={isFullScreenLoading}
+          onUndo={onUndo}
+          onRedo={onRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
         />
 
         <div 
           className="flex-1 relative overflow-hidden rounded-lg" 
           ref={imageContainerRef}
-          onContextMenu={(e) => onContextMenu(e, selectedImage.path)}
+          onContextMenu={onContextMenu}
         >
           {showSpinner && (
             <div className={clsx(

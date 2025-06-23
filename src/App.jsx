@@ -6,7 +6,7 @@ import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
 import { centerCrop, makeAspectCrop } from 'react-image-crop';
 import clsx from 'clsx';
-import { Copy, ClipboardPaste, RotateCcw, Star, Trash2, Folder, Edit, Check, X } from 'lucide-react';
+import { Copy, ClipboardPaste, RotateCcw, Star, Trash2, Folder, Edit, Check, X, Undo, Redo } from 'lucide-react';
 import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
@@ -68,6 +68,48 @@ export const INITIAL_ADJUSTMENTS = {
   masks: [],
 };
 
+const useHistoryState = (initialState) => {
+  const [history, setHistory] = useState([initialState]);
+  const [index, setIndex] = useState(0);
+
+  const state = useMemo(() => history[index], [history, index]);
+
+  const setState = useCallback((newState) => {
+    const resolvedState = typeof newState === 'function' ? newState(history[index]) : newState;
+    
+    if (JSON.stringify(resolvedState) === JSON.stringify(history[index])) {
+      return;
+    }
+
+    const newHistory = history.slice(0, index + 1);
+    newHistory.push(resolvedState);
+    setHistory(newHistory);
+    setIndex(newHistory.length - 1);
+  }, [history, index]);
+
+  const undo = useCallback(() => {
+    if (index > 0) {
+      setIndex(index - 1);
+    }
+  }, [index]);
+
+  const redo = useCallback(() => {
+    if (index < history.length - 1) {
+      setIndex(index + 1);
+    }
+  }, [index, history.length]);
+
+  const resetHistory = useCallback((newInitialState) => {
+    setHistory([newInitialState]);
+    setIndex(0);
+  }, []);
+
+  const canUndo = index > 0;
+  const canRedo = index < history.length - 1;
+
+  return { state, setState, undo, redo, canUndo, canRedo, resetHistory };
+};
+
 const Resizer = ({ onMouseDown, direction }) => (
   <div
       onMouseDown={onMouseDown}
@@ -103,7 +145,19 @@ function App() {
   const [libraryActiveAdjustments, setLibraryActiveAdjustments] = useState(INITIAL_ADJUSTMENTS);
   const [finalPreviewUrl, setFinalPreviewUrl] = useState(null);
   const [uncroppedAdjustedPreviewUrl, setUncroppedAdjustedPreviewUrl] = useState(null);
-  const [adjustments, setAdjustments] = useState(INITIAL_ADJUSTMENTS);
+  
+  const {
+    state: historyAdjustments,
+    setState: setHistoryAdjustments,
+    undo: undoAdjustments,
+    redo: redoAdjustments,
+    canUndo,
+    canRedo,
+    resetHistory: resetAdjustmentsHistory,
+  } = useHistoryState(INITIAL_ADJUSTMENTS);
+
+  const [adjustments, setLiveAdjustments] = useState(INITIAL_ADJUSTMENTS);
+
   const [showOriginal, setShowOriginal] = useState(false);
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const [isViewLoading, setIsViewLoading] = useState(false);
@@ -146,6 +200,34 @@ function App() {
   const loaderTimeoutRef = useRef(null);
   const folderTreeTimeoutRef = useRef(null);
   const transformWrapperRef = useRef(null);
+
+  const debouncedSetHistory = useCallback(debounce((newAdjustments) => {
+    setHistoryAdjustments(newAdjustments);
+  }, 400), [setHistoryAdjustments]);
+
+  const setAdjustments = useCallback((value) => {
+    const newAdjustments = typeof value === 'function' ? value(adjustments) : value;
+    setLiveAdjustments(newAdjustments);
+    debouncedSetHistory(newAdjustments);
+  }, [adjustments, debouncedSetHistory]);
+
+  useEffect(() => {
+    setLiveAdjustments(historyAdjustments);
+  }, [historyAdjustments]);
+
+  const undo = useCallback(() => {
+    if (canUndo) {
+      undoAdjustments();
+      debouncedSetHistory.cancel();
+    }
+  }, [canUndo, undoAdjustments, debouncedSetHistory]);
+
+  const redo = useCallback(() => {
+    if (canRedo) {
+      redoAdjustments();
+      debouncedSetHistory.cancel();
+    }
+  }, [canRedo, redoAdjustments, debouncedSetHistory]);
 
   const sortedImageList = useMemo(() => {
     const list = [...imageList];
@@ -286,18 +368,24 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
-        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
-          return;
-        }
-        
-        event.preventDefault();
+      const isInputFocused = document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA';
 
-        if (sortedImageList.length > 0) {
-          setMultiSelectedPaths(sortedImageList.map(f => f.path));
-          if (!selectedImage) {
-            setLibraryActivePath(sortedImageList[sortedImageList.length - 1].path);
+      if (event.ctrlKey || event.metaKey) {
+        const key = event.key.toLowerCase();
+        if (key === 'a' && !isInputFocused) {
+          event.preventDefault();
+          if (sortedImageList.length > 0) {
+            setMultiSelectedPaths(sortedImageList.map(f => f.path));
+            if (!selectedImage) {
+              setLibraryActivePath(sortedImageList[sortedImageList.length - 1].path);
+            }
           }
+        } else if (key === 'z' && !isInputFocused && selectedImage) {
+          event.preventDefault();
+          undo();
+        } else if (key === 'y' && !isInputFocused && selectedImage) {
+          event.preventDefault();
+          redo();
         }
       }
     };
@@ -306,7 +394,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [sortedImageList, selectedImage]);
+  }, [sortedImageList, selectedImage, undo, redo]);
 
   useEffect(() => {
     let isEffectActive = true;
@@ -576,7 +664,10 @@ function App() {
     setHistogram(null);
     setFinalPreviewUrl(null);
     setUncroppedAdjustedPreviewUrl(null);
-    setAdjustments(INITIAL_ADJUSTMENTS);
+    
+    setLiveAdjustments(INITIAL_ADJUSTMENTS);
+    resetAdjustmentsHistory(INITIAL_ADJUSTMENTS);
+
     setShowOriginal(false);
     setActiveMaskId(null);
     if (transformWrapperRef.current) {
@@ -614,19 +705,19 @@ function App() {
             return currentSelected;
           });
 
+          let initialAdjusts = INITIAL_ADJUSTMENTS;
           if (loadImageResult.metadata.adjustments && !loadImageResult.metadata.adjustments.is_null) {
             const loadedAdjustments = loadImageResult.metadata.adjustments;
-            setAdjustments(prev => ({
+            initialAdjusts = {
               ...INITIAL_ADJUSTMENTS,
-              ...prev,
               ...loadedAdjustments,
               hsl: { ...INITIAL_ADJUSTMENTS.hsl, ...loadedAdjustments.hsl },
               curves: { ...INITIAL_ADJUSTMENTS.curves, ...loadedAdjustments.curves },
               masks: loadedAdjustments.masks || [],
-            }));
-          } else {
-            setAdjustments(INITIAL_ADJUSTMENTS);
+            };
           }
+          setLiveAdjustments(initialAdjusts);
+          resetAdjustmentsHistory(initialAdjusts);
           
           setHistogram(histData);
 
@@ -649,7 +740,7 @@ function App() {
         isEffectActive = false;
       };
     }
-  }, [selectedImage?.path, selectedImage?.isReady]);
+  }, [selectedImage?.path, selectedImage?.isReady, resetAdjustmentsHistory]);
 
   const handleBackToLibrary = () => {
     const lastActivePath = selectedImage?.path;
@@ -740,7 +831,7 @@ function App() {
         setError(`Failed to apply rating: ${err}`);
       });
 
-  }, [multiSelectedPaths, selectedImage, libraryActivePath]);
+  }, [multiSelectedPaths, selectedImage, libraryActivePath, setAdjustments]);
 
 const handleZoomChange = useCallback((newZoomValue) => {
   setZoom(newZoomValue);
@@ -808,6 +899,36 @@ const handleZoomChange = useCallback((newZoomValue) => {
       });
   };
 
+  const handleEditorContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const options = [
+      { label: 'Undo', icon: Undo, onClick: undo, disabled: !canUndo },
+      { label: 'Redo', icon: Redo, onClick: redo, disabled: !canRedo },
+      { type: 'separator' },
+      { label: 'Copy Adjustments', icon: Copy, onClick: handleCopyAdjustments },
+      { label: 'Paste Adjustments', icon: ClipboardPaste, onClick: handlePasteAdjustments, disabled: copiedAdjustments === null },
+      { type: 'separator' },
+      {
+        label: 'Set Rating',
+        icon: Star,
+        submenu: [0, 1, 2, 3, 4, 5].map(rating => ({
+          label: `${rating} Star${rating !== 1 ? 's' : ''}`,
+          onClick: () => handleRate(rating),
+        }))
+      },
+      { type: 'separator' },
+      {
+        label: 'Reset Adjustments',
+        icon: RotateCcw,
+        onClick: () => setAdjustments(prev => ({ ...INITIAL_ADJUSTMENTS, rating: prev.rating })),
+      },
+    ];
+
+    showContextMenu(event.clientX, event.clientY, options);
+  };
+
   const handleThumbnailContextMenu = (event, path) => {
     event.preventDefault();
     event.stopPropagation();
@@ -828,7 +949,6 @@ const handleZoomChange = useCallback((newZoomValue) => {
     const selectionCount = finalSelection.length;
     const isSingleSelection = selectionCount === 1;
     
-    // Check if the right-clicked image is the one currently being edited.
     const isEditingThisImage = selectedImage?.path === path;
 
     const pasteLabel = isSingleSelection
@@ -842,7 +962,6 @@ const handleZoomChange = useCallback((newZoomValue) => {
         : `Delete ${selectionCount} Images`;
 
     const options = [
-      // Conditionally add the "Edit Photo" item and its separator.
       ...(!isEditingThisImage ? [
         {
           label: 'Edit Photo',
@@ -999,7 +1118,11 @@ const handleZoomChange = useCallback((newZoomValue) => {
               onSelectMask={setActiveMaskId}
               transformWrapperRef={transformWrapperRef}
               onZoomed={(transformState) => setZoom(transformState.scale)}
-              onContextMenu={handleThumbnailContextMenu}
+              onContextMenu={handleEditorContextMenu}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={canUndo}
+              canRedo={canRedo}
             />
             <Resizer onMouseDown={createResizeHandler(setBottomPanelHeight, bottomPanelHeight)} direction="horizontal" />
             <BottomBar

@@ -9,17 +9,16 @@ use std::thread;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::jpeg::JpegEncoder;
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+use image::{DynamicImage, GenericImageView};
 use rayon::prelude::*;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use crate::image_processing::{
-    get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, Crop,
-    GpuContext, ImageMetadata,
+    apply_crop, get_all_adjustments_from_json, GpuContext, ImageMetadata, Crop, apply_rotation,
 };
 use crate::raw_processing;
-use crate::AppState;
+use crate::{gpu_processing, AppState};
 
 const THUMBNAIL_WIDTH: u32 = 720;
 
@@ -161,24 +160,18 @@ fn generate_thumbnail_data(
 ) -> Result<DynamicImage> {
     let file_bytes = fs::read(path_str)?;
 
-    // Step 1: Load a reasonably-sized preview image and get original dimensions.
-    let (mut image_to_process, original_dims): (DynamicImage, (u32, u32)) = if is_raw_file(path_str)
-    {
+    let (image_for_preview, original_dims): (DynamicImage, (u32, u32)) = if is_raw_file(path_str) {
         let raw_info = rawloader::decode(&mut Cursor::new(&file_bytes))?;
         let crops = raw_info.crops;
         let full_width = raw_info.width as u32 - crops[3] as u32 - crops[1] as u32;
         let full_height = raw_info.height as u32 - crops[0] as u32 - crops[2] as u32;
-
         (
             raw_processing::develop_raw_thumbnail(&file_bytes)?,
             (full_width, full_height),
         )
     } else {
-        // Load the full image into memory first for all non-RAW types
         let img = image::load_from_memory(&file_bytes)?;
         let original_dims = img.dimensions();
-
-        // Then, if it's too large, create a smaller version for processing
         const PROCESSING_PREVIEW_DIM: u32 = 1280;
         let processing_base = if original_dims.0 > PROCESSING_PREVIEW_DIM {
             img.thumbnail(PROCESSING_PREVIEW_DIM, PROCESSING_PREVIEW_DIM)
@@ -189,75 +182,65 @@ fn generate_thumbnail_data(
     };
 
     let sidecar_path = get_sidecar_path(path_str);
+    let metadata: Option<ImageMetadata> = fs::read_to_string(sidecar_path)
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok());
 
-    // Step 2: If there are adjustments, apply them.
-    if let (Some(context), Ok(file_content)) = (gpu_context, fs::read_to_string(sidecar_path)) {
-        if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
-            if !metadata.adjustments.is_null() {
-                // The adjustments (crop, masks) are relative to the original image dimensions.
-                // We need to scale them for our smaller preview image.
+    if let (Some(context), Some(meta)) = (gpu_context, metadata) {
+        if !meta.adjustments.is_null() {
+            let rotation_degrees = meta.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+            let rotated_image = apply_rotation(&image_for_preview, rotation_degrees);
 
-                let (orig_w, orig_h) = original_dims;
-                let (preview_w, preview_h) = image_to_process.dimensions();
+            let (orig_w, orig_h) = original_dims;
+            let (preview_w, preview_h) = rotated_image.dimensions();
 
-                // a. Handle crop
-                let crop_val = &metadata.adjustments["crop"];
-                let original_crop = serde_json::from_value::<Crop>(crop_val.clone()).unwrap_or(
-                    Crop {
-                        x: 0.0,
-                        y: 0.0,
-                        width: orig_w as f64,
-                        height: orig_h as f64,
-                    },
-                );
+            let crop_scale_x = preview_w as f32 / orig_w as f32;
+            let crop_scale_y = preview_h as f32 / orig_h as f32;
 
-                let crop_scale_x = preview_w as f32 / orig_w as f32;
-                let crop_scale_y = preview_h as f32 / orig_h as f32;
+            let crop_data: Option<Crop> = serde_json::from_value(meta.adjustments["crop"].clone()).ok();
+            let scaled_crop_json = if let Some(c) = crop_data {
+                serde_json::to_value(Crop {
+                    x: c.x * crop_scale_x as f64,
+                    y: c.y * crop_scale_y as f64,
+                    width: c.width * crop_scale_x as f64,
+                    height: c.height * crop_scale_y as f64,
+                }).unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::Value::Null
+            };
 
-                let preview_crop_x = (original_crop.x as f32 * crop_scale_x).round() as u32;
-                let preview_crop_y = (original_crop.y as f32 * crop_scale_y).round() as u32;
-                let preview_crop_w = (original_crop.width as f32 * crop_scale_x).round() as u32;
-                let preview_crop_h = (original_crop.height as f32 * crop_scale_y).round() as u32;
+            let cropped_preview = apply_crop(rotated_image, &scaled_crop_json);
+            let crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32 * crop_scale_x, c.y as f32 * crop_scale_y));
 
-                let cropped_preview = image_to_process.crop_imm(
-                    preview_crop_x,
-                    preview_crop_y,
-                    preview_crop_w,
-                    preview_crop_h,
-                );
+            let original_crop_width = crop_data.map_or(orig_w as f64, |c| c.width) as u32;
+            let scale_for_gpu = if original_crop_width > 0 {
+                (cropped_preview.width() as f32 / original_crop_width as f32).min(1.0)
+            } else {
+                1.0
+            };
 
-                // b. Calculate scale for GPU adjustments
-                let original_cropped_w = original_crop.width as u32;
-                let scale = if original_cropped_w > 0 {
-                    (cropped_preview.width() as f32 / original_cropped_w as f32).min(1.0)
-                } else {
-                    1.0
-                };
+            let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments, crop_offset, scale_for_gpu);
 
-                let gpu_adjustments = get_all_adjustments_from_json(&metadata.adjustments, scale);
-
-                // c. Run GPU processing
-                if let Ok(processed_pixels) =
-                    run_gpu_processing(context, &cropped_preview, gpu_adjustments)
-                {
-                    let (width, height) = cropped_preview.dimensions();
-                    if let Some(img_buf) =
-                        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-                    {
-                        image_to_process = DynamicImage::ImageRgba8(img_buf);
-                    } else {
-                        image_to_process = cropped_preview;
-                    }
-                } else {
-                    image_to_process = cropped_preview;
-                }
+            if let Ok(processed_image) = gpu_processing::process_and_get_dynamic_image(context, &cropped_preview, gpu_adjustments) {
+                return Ok(processed_image);
+            } else {
+                return Ok(cropped_preview);
             }
         }
     }
 
-    // Step 3: Return the final processed image, ready for encoding.
-    Ok(image_to_process)
+    let sidecar_path = get_sidecar_path(path_str);
+    if let Ok(file_content) = fs::read_to_string(sidecar_path) {
+        if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
+            let rotation_degrees = metadata.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+            let rotated_image = apply_rotation(&image_for_preview, rotation_degrees);
+            return Ok(apply_crop(rotated_image, &metadata.adjustments["crop"]));
+        }
+    }
+
+    Ok(image_for_preview)
 }
+
 
 fn encode_thumbnail(image: &DynamicImage) -> Result<Vec<u8>> {
     let thumbnail = image.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_WIDTH);
@@ -282,7 +265,7 @@ pub fn generate_thumbnails(
     }
 
     let state = app_handle.state::<AppState>();
-    let gpu_context = get_or_init_gpu_context(&state).ok();
+    let gpu_context = gpu_processing::get_or_init_gpu_context(&state).ok();
 
     let thumbnails: HashMap<String, String> = paths
         .par_iter()
@@ -358,7 +341,7 @@ pub fn generate_thumbnails_progressive(
 
     thread::spawn(move || {
         let state = app_handle.state::<AppState>();
-        let gpu_context = get_or_init_gpu_context(&state).ok();
+        let gpu_context = gpu_processing::get_or_init_gpu_context(&state).ok();
 
         paths.par_iter().for_each(|path_str| {
             let result = (|| -> Option<(String, u8)> {

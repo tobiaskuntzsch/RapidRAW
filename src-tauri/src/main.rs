@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+use image::{DynamicImage, GenericImageView};
 use image::codecs::jpeg::JpegEncoder;
 use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
@@ -24,8 +24,8 @@ use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 use crate::image_processing::{
-    get_all_adjustments_from_json, get_or_init_gpu_context, run_gpu_processing, GpuContext,
-    ImageMetadata, AllAdjustments, process_and_get_dynamic_image,
+    get_all_adjustments_from_json, get_or_init_gpu_context, GpuContext,
+    ImageMetadata, process_and_get_dynamic_image, Crop, apply_crop, apply_rotation,
 };
 use crate::file_management::get_sidecar_path;
 use crate::raw_processing::DemosaicAlgorithm;
@@ -33,7 +33,8 @@ use crate::raw_processing::DemosaicAlgorithm;
 #[derive(Clone)]
 pub struct PreviewCache {
     crop_value: Value,
-    cropped_image: DynamicImage,
+    rotation_value: Value,
+    processed_image: DynamicImage,
 }
 
 #[derive(Clone)]
@@ -173,7 +174,7 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
         full_width: orig_width,
         full_height: orig_height,
     });
-
+    
     *state.preview_cache.lock().unwrap() = None;
 
     let sidecar_path = get_sidecar_path(&path);
@@ -194,21 +195,6 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
     })
 }
 
-fn process_image_for_preview(
-    context: &GpuContext,
-    image: &DynamicImage,
-    all_adjustments: AllAdjustments,
-    quality: u8,
-) -> Result<String, String> {
-    let processed_pixels = run_gpu_processing(context, image, all_adjustments)?;
-    let (width, height) = image.dimensions();
-    let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-        .ok_or("Failed to create image buffer from GPU data")?;
-
-    encode_to_base64(&DynamicImage::ImageRgba8(img_buf), quality)
-}
-
-
 #[tauri::command]
 fn apply_adjustments(
     js_adjustments: serde_json::Value,
@@ -219,63 +205,48 @@ fn apply_adjustments(
     let adjustments_clone = js_adjustments.clone();
 
     let mut cache_lock = state.preview_cache.lock().unwrap();
-    let current_crop_value = &js_adjustments["crop"];
+    let current_crop_value = js_adjustments.get("crop").cloned().unwrap_or(Value::Null);
+    let current_rotation_value = js_adjustments.get("rotation").cloned().unwrap_or(serde_json::json!(0.0));
 
     let cache_is_valid = match &*cache_lock {
-        Some(cache) => &cache.crop_value == current_crop_value,
+        Some(cache) => &cache.crop_value == &current_crop_value && &cache.rotation_value == &current_rotation_value,
         None => false,
     };
 
     let loaded_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
     let original_image = loaded_image.image;
-    let (full_w, full_h) = (loaded_image.full_width, loaded_image.full_height);
+    let (full_w, _full_h) = (loaded_image.full_width, loaded_image.full_height);
 
-    let cropped_image_base = if cache_is_valid {
-        cache_lock.as_ref().unwrap().cropped_image.clone()
+    let scale = original_image.width() as f32 / full_w as f32;
+
+    let (image_for_processing, crop_offset_scaled) = if cache_is_valid {
+        let cache = cache_lock.as_ref().unwrap();
+        let crop_data: Option<Crop> = serde_json::from_value(cache.crop_value.clone()).ok();
+        let offset = crop_data.map_or((0.0, 0.0), |c| ((c.x as f32 * scale), (c.y as f32 * scale)));
+        (cache.processed_image.clone(), offset)
     } else {
-        let (preview_w, preview_h) = original_image.dimensions();
-        let crop_scale_x = preview_w as f32 / full_w as f32;
-        let crop_scale_y = preview_h as f32 / full_h as f32;
-
-        let original_crop = serde_json::from_value::<image_processing::Crop>(current_crop_value.clone())
-            .unwrap_or(image_processing::Crop {
-                x: 0.0, y: 0.0, width: full_w as f64, height: full_h as f64,
-            });
-
-        let preview_crop_x = (original_crop.x as f32 * crop_scale_x).round() as u32;
-        let preview_crop_y = (original_crop.y as f32 * crop_scale_y).round() as u32;
-        let preview_crop_w = (original_crop.width as f32 * crop_scale_x).round() as u32;
-        let preview_crop_h = (original_crop.height as f32 * crop_scale_y).round() as u32;
-
-        let new_cropped_image = original_image.crop_imm(
-            preview_crop_x, preview_crop_y, preview_crop_w, preview_crop_h
-        );
+        let rotation_degrees = current_rotation_value.as_f64().unwrap_or(0.0) as f32;
+        let rotated_image = apply_rotation(&original_image, rotation_degrees);
+        let new_cropped_image = apply_crop(rotated_image, &current_crop_value);
+        
+        let crop_data: Option<Crop> = serde_json::from_value(current_crop_value.clone()).ok();
+        let offset = crop_data.map_or((0.0, 0.0), |c| ((c.x as f32 * scale), (c.y as f32 * scale)));
 
         *cache_lock = Some(PreviewCache {
             crop_value: current_crop_value.clone(),
-            cropped_image: new_cropped_image.clone(),
+            rotation_value: current_rotation_value.clone(),
+            processed_image: new_cropped_image.clone(),
         });
-        new_cropped_image
+        (new_cropped_image, offset)
     };
 
     thread::spawn(move || {
-        let (cropped_w, _cropped_h) = cropped_image_base.dimensions();
-
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let final_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
 
-        let final_target_dim = cropped_w.min(final_preview_dim);
-        let final_preview_base = cropped_image_base.thumbnail(final_target_dim, final_target_dim);
+        let final_preview_base = image_for_processing.thumbnail(final_preview_dim, final_preview_dim);
         
-        let original_crop_width = js_adjustments["crop"]["width"].as_f64().unwrap_or(full_w as f64) as u32;
-
-        let final_scale = if original_crop_width > 0 {
-            (final_preview_base.width() as f32 / original_crop_width as f32).min(1.0)
-        } else {
-            1.0
-        };
-        
-        let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, final_scale);
+        let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, crop_offset_scaled, scale);
 
         if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
             if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&final_processed_image) {
@@ -305,14 +276,20 @@ fn generate_uncropped_preview(
     thread::spawn(move || {
         const UNCROPPED_PREVIEW_DIM: u32 = 1920;
         
-        let uncropped_target_dim = original_image.width().min(UNCROPPED_PREVIEW_DIM);
-        let uncropped_preview_base = original_image.thumbnail(uncropped_target_dim, uncropped_target_dim);
+        let uncropped_preview_base = original_image.thumbnail(UNCROPPED_PREVIEW_DIM, UNCROPPED_PREVIEW_DIM);
 
-        let uncropped_scale = if full_w > 0 { (uncropped_preview_base.width() as f32 / full_w as f32).min(1.0) } else { 1.0 };
-        let uncropped_adjustments = get_all_adjustments_from_json(&js_adjustments, uncropped_scale);
+        let scale = if full_w > 0 { 
+            (uncropped_preview_base.width() as f32 / full_w as f32).min(1.0) 
+        } else { 
+            1.0 
+        };
+        
+        let uncropped_adjustments = get_all_adjustments_from_json(&js_adjustments, (0.0, 0.0), scale);
 
-        if let Ok(base64_str) = process_image_for_preview(&context, &uncropped_preview_base, uncropped_adjustments, 85) {
-            let _ = app_handle.emit("preview-update-uncropped", base64_str);
+        if let Ok(processed_image) = process_and_get_dynamic_image(&context, &uncropped_preview_base, uncropped_adjustments) {
+            if let Ok(base64_str) = encode_to_base64(&processed_image, 85) {
+                let _ = app_handle.emit("preview-update-uncropped", base64_str);
+            }
         }
     });
 
@@ -335,16 +312,18 @@ fn generate_fullscreen_preview(
             original_image_lock.as_ref().ok_or("No original image loaded")?.image.clone()
         }
     };
-
-    let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
-    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
-
-    let processed_pixels = run_gpu_processing(&context, &cropped_image, all_adjustments)?;
-    let (width, height) = cropped_image.dimensions();
-    let final_image_buffer = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
-        .ok_or("Failed to create final image buffer for fullscreen preview")?;
     
-    encode_to_base64(&DynamicImage::ImageRgba8(final_image_buffer), 95)
+    let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+    let rotated_image = apply_rotation(&base_image, rotation_degrees);
+    let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
+    
+    let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
+    let crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, crop_offset, 1.0);
+    let final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
+    
+    encode_to_base64(&final_image, 95)
 }
 
 #[tauri::command]
@@ -367,8 +346,14 @@ fn export_image(
         }
     };
 
-    let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
-    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
+    let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+    let rotated_image = apply_rotation(&base_image, rotation_degrees);
+    let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
+
+    let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
+    let crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, crop_offset, 1.0);
     let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
 
     if let Some(resize_opts) = export_settings.resize {
@@ -454,9 +439,15 @@ fn batch_export_images(
                 ImageMetadata::default()
             };
             let js_adjustments = metadata.adjustments;
+            
+            let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+            let rotated_image = apply_rotation(&base_image, rotation_degrees);
+            let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
 
-            let cropped_image = image_processing::apply_crop(base_image, &js_adjustments["crop"]);
-            let all_adjustments = get_all_adjustments_from_json(&js_adjustments, 1.0);
+            let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
+            let crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+
+            let all_adjustments = get_all_adjustments_from_json(&js_adjustments, crop_offset, 1.0);
             let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
 
             if let Some(resize_opts) = &export_settings.resize {
@@ -713,25 +704,20 @@ fn generate_preset_preview(
     let loaded_image = state.original_image.lock().unwrap().clone()
         .ok_or("No original image loaded for preset preview")?;
     let original_image = loaded_image.image;
-    let (full_w, _full_h) = (loaded_image.full_width, loaded_image.full_height);
     
-    let cropped_image = image_processing::apply_crop(original_image, &js_adjustments["crop"]);
-    let (_cropped_w, _cropped_h) = cropped_image.dimensions();
-
     const PRESET_PREVIEW_DIM: u32 = 200;
-    let preview_base = cropped_image.thumbnail(PRESET_PREVIEW_DIM, PRESET_PREVIEW_DIM);
+    let preview_base = original_image.thumbnail(PRESET_PREVIEW_DIM, PRESET_PREVIEW_DIM);
 
-    let original_crop_width = js_adjustments["crop"]["width"].as_f64().unwrap_or(full_w as f64) as u32;
+    let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+    let rotated_image = apply_rotation(&preview_base, rotation_degrees);
+    let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
 
-    let scale = if original_crop_width > 0 {
-        (preview_base.width() as f32 / original_crop_width as f32).min(1.0)
-    } else {
-        1.0
-    };
+    let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
+    let crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
 
-    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, scale);
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, crop_offset, 1.0);
     
-    let processed_image = process_and_get_dynamic_image(&context, &preview_base, all_adjustments)?;
+    let processed_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
     
     encode_to_base64(&processed_image, 50)
 }
@@ -745,7 +731,7 @@ fn handle_import_presets_from_file(file_path: String, app_handle: tauri::AppHand
     let mut current_preset_names: HashMap<String, usize> = current_presets.iter().map(|p| (p.name.clone(), 1)).collect();
 
     for mut imported_preset in imported_preset_file.presets {
-        imported_preset.id = Uuid::new_v4().to_string(); // Assign new unique ID
+        imported_preset.id = Uuid::new_v4().to_string();
 
         let mut new_name = imported_preset.name.clone();
         let mut counter = 1;

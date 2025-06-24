@@ -1,9 +1,12 @@
 use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, Rgba};
+use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::f32::consts::PI;
 
+pub use crate::gpu_processing::{get_or_init_gpu_context, process_and_get_dynamic_image};
 use crate::{AppState};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -31,6 +34,23 @@ pub struct Crop {
     pub height: f64,
 }
 
+pub fn apply_rotation(image: &DynamicImage, rotation_degrees: f32) -> DynamicImage {
+    if rotation_degrees % 360.0 == 0.0 {
+        return image.clone();
+    }
+
+    let rgba_image = image.to_rgba8();
+    
+    let rotated = rotate_about_center(
+        &rgba_image,
+        rotation_degrees * PI / 180.0,
+        Interpolation::Bilinear,
+        Rgba([0u8, 0, 0, 0]),
+    );
+
+    DynamicImage::ImageRgba8(rotated)
+}
+
 pub fn apply_crop(mut image: DynamicImage, crop_value: &Value) -> DynamicImage {
     if crop_value.is_null() {
         return image;
@@ -54,6 +74,7 @@ pub fn apply_crop(mut image: DynamicImage, crop_value: &Value) -> DynamicImage {
     }
     image
 }
+
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
@@ -87,7 +108,6 @@ pub struct GlobalAdjustments {
     pub tint: f32,
     pub vibrance: f32,
     
-    // New fields for Details and Effects
     pub sharpness: f32,
     pub luma_noise_reduction: f32,
     pub color_noise_reduction: f32,
@@ -101,7 +121,7 @@ pub struct GlobalAdjustments {
     pub grain_amount: f32,
     pub grain_size: f32,
     pub grain_roughness: f32,
-    _pad1: f32, // Padding to align HSL to a 16-byte boundary
+    _pad1: f32,
 
     pub hsl: [HslColor; 8],
     pub luma_curve: [Point; 16],
@@ -149,13 +169,9 @@ pub struct AllAdjustments {
     pub global: GlobalAdjustments,
     pub masks: [Mask; 16],
     pub mask_count: u32,
-    pub crop_x: u32,
-    pub crop_y: u32,
-    pub preview_scale: f32,
     pub tile_offset_x: u32,
     pub tile_offset_y: u32,
     _pad1: u32,
-    _pad2: u32,
 }
 
 fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
@@ -237,13 +253,10 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
     }
 }
 
-pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview_scale: f32) -> AllAdjustments {
+pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, crop_offset: (f32, f32), scale: f32) -> AllAdjustments {
     let global = get_global_adjustments_from_json(js_adjustments);
     let mut masks = [Mask::default(); 16];
     let mut mask_count = 0;
-
-    let crop_data: Option<Crop> = js_adjustments.get("crop").and_then(|c| serde_json::from_value(c.clone()).ok());
-    let (crop_x_offset, crop_y_offset) = crop_data.map_or((0.0, 0.0), |c| (c.x, c.y));
 
     if let Some(js_masks) = js_adjustments.get("masks").and_then(|m| m.as_array()) {
         for (i, js_mask) in js_masks.iter().enumerate().take(16) {
@@ -257,12 +270,15 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
                 _ => 0,
             };
 
-            let center_x = geo["x"].as_f64().unwrap_or(0.0) as f32 + crop_x_offset as f32;
-            let center_y = geo["y"].as_f64().unwrap_or(0.0) as f32 + crop_y_offset as f32;
-            let start_x = geo["startX"].as_f64().unwrap_or(0.0) as f32 + crop_x_offset as f32;
-            let start_y = geo["startY"].as_f64().unwrap_or(0.0) as f32 + crop_y_offset as f32;
-            let end_x = geo["endX"].as_f64().unwrap_or(0.0) as f32 + crop_x_offset as f32;
-            let end_y = geo["endY"].as_f64().unwrap_or(0.0) as f32 + crop_y_offset as f32;
+            let center_x = (geo["x"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.0;
+            let center_y = (geo["y"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.1;
+            let start_x = (geo["startX"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.0;
+            let start_y = (geo["startY"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.1;
+            let end_x = (geo["endX"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.0;
+            let end_y = (geo["endY"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.1;
+            
+            let radius_x = geo["radiusX"].as_f64().unwrap_or(0.0) as f32 * scale;
+            let radius_y = geo["radiusY"].as_f64().unwrap_or(0.0) as f32 * scale;
 
             masks[i] = Mask {
                 mask_type,
@@ -271,8 +287,8 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
                 rotation: js_mask["rotation"].as_f64().unwrap_or(0.0) as f32,
                 center_x,
                 center_y,
-                radius_x: geo["radiusX"].as_f64().unwrap_or(0.0) as f32,
-                radius_y: geo["radiusY"].as_f64().unwrap_or(0.0) as f32,
+                radius_x,
+                radius_y,
                 start_x,
                 start_y,
                 end_x,
@@ -297,15 +313,12 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, preview
         global,
         masks,
         mask_count,
-        crop_x: crop_x_offset.round() as u32,
-        crop_y: crop_y_offset.round() as u32,
-        preview_scale,
         tile_offset_x: 0,
         tile_offset_y: 0,
         _pad1: 0,
-        _pad2: 0,
     }
 }
+
 
 #[derive(Clone)]
 pub struct GpuContext {
@@ -313,8 +326,6 @@ pub struct GpuContext {
     pub queue: Arc<wgpu::Queue>,
     pub limits: wgpu::Limits,
 }
-
-pub use crate::gpu_processing::{get_or_init_gpu_context, process_and_get_dynamic_image, run_gpu_processing};
 
 #[derive(Serialize, Clone)]
 pub struct HistogramData {

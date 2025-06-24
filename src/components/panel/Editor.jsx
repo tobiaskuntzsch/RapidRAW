@@ -251,6 +251,7 @@ const ImageCanvas = memo(({
   const imagePathRef = useRef(null);
   const latestEditedUrlRef = useRef(null);
   const [layers, setLayers] = useState([]);
+  const cropImageRef = useRef(null);
 
   useEffect(() => {
     const { path: currentImagePath, originalUrl, thumbnailUrl } = selectedImage;
@@ -322,7 +323,7 @@ const ImageCanvas = memo(({
   return (
     <div className="relative" style={{ width: '100%', height: '100%' }}>
       <div
-        className="absolute inset-0 w-full h-full transition-opacity duration-200"
+        className="absolute inset-0 w-full h-full transition-opacity duration-200 flex items-center justify-center"
         style={{
           opacity: isCropViewVisible ? 0 : 1,
           pointerEvents: isCropViewVisible ? 'none' : 'auto',
@@ -330,10 +331,15 @@ const ImageCanvas = memo(({
       >
         <div
           className={clsx(
-            "absolute inset-0 w-full h-full transition-opacity duration-300",
+            "transition-opacity duration-300",
             isAdjusting && !showOriginal ? 'opacity-70' : 'opacity-100'
           )}
-          style={{ opacity: isContentReady ? 1 : 0 }}
+          style={{ 
+            opacity: isContentReady ? 1 : 0,
+            width: '100%',
+            height: '100%',
+            position: 'relative'
+          }}
         >
           <div className="absolute inset-0 w-full h-full">
             {layers.map(layer => (
@@ -393,20 +399,26 @@ const ImageCanvas = memo(({
         }}
       >
         {cropPreviewUrl && (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <ReactCrop
-              crop={crop}
-              onChange={(_, percentCrop) => setCrop(percentCrop)}
-              onComplete={handleCropComplete}
-              aspect={adjustments.aspectRatio}
-            >
-              <img
-                alt="Crop preview"
-                src={cropPreviewUrl}
-                style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-              />
-            </ReactCrop>
-          </div>
+          <ReactCrop
+            crop={crop}
+            onChange={(_, percentCrop) => setCrop(percentCrop)}
+            onComplete={(c, pc) => handleCropComplete(c, pc, cropImageRef.current)}
+            aspect={adjustments.aspectRatio}
+            ruleOfThirds
+          >
+            <img
+              ref={cropImageRef}
+              alt="Crop preview"
+              src={cropPreviewUrl}
+              style={{ 
+                display: 'block', 
+                maxWidth: '100%', 
+                maxHeight: '100%', 
+                objectFit: 'contain',
+                transform: `rotate(${adjustments.rotation}deg)`,
+              }}
+            />
+          </ReactCrop>
         )}
       </div>
     </div>
@@ -456,19 +468,25 @@ export default function Editor({
   }, [showSpinner]);
 
   useEffect(() => {
-    if (!isCropping || !selectedImage) {
+    if (!isCropping || !selectedImage?.width) {
       setCrop(undefined);
       return;
     }
+    
     const { width: originalWidth, height: originalHeight } = selectedImage;
-    if (!originalWidth || !originalHeight) return;
+    const { crop: pixelCrop, aspectRatio } = adjustments;
 
-    if (adjustments.crop) {
-      const { x, y, width, height } = adjustments.crop;
-      setCrop({ unit: '%', x: (x / originalWidth) * 100, y: (y / originalHeight) * 100, width: (width / originalWidth) * 100, height: (height / originalHeight) * 100 });
+    if (pixelCrop) {
+      setCrop({
+        unit: '%',
+        x: (pixelCrop.x / originalWidth) * 100,
+        y: (pixelCrop.y / originalHeight) * 100,
+        width: (pixelCrop.width / originalWidth) * 100,
+        height: (pixelCrop.height / originalHeight) * 100,
+      });
     } else {
-      setCrop(adjustments.aspectRatio
-        ? centerAspectCrop(originalWidth, originalHeight, adjustments.aspectRatio)
+      setCrop(aspectRatio
+        ? centerAspectCrop(originalWidth, originalHeight, aspectRatio)
         : { unit: '%', width: 100, height: 100, x: 0, y: 0 }
       );
     }
@@ -476,21 +494,20 @@ export default function Editor({
 
   const handleCropComplete = useCallback((_, pc) => {
     if (!pc.width || !pc.height || !selectedImage?.width) return;
+
     const { width: originalWidth, height: originalHeight } = selectedImage;
-    const pixelCrop = {
+    
+    const newPixelCrop = {
       x: Math.round((pc.x / 100) * originalWidth),
       y: Math.round((pc.y / 100) * originalHeight),
       width: Math.round((pc.width / 100) * originalWidth),
       height: Math.round((pc.height / 100) * originalHeight),
     };
-    const isFullImageCrop = pixelCrop.x === 0 && pixelCrop.y === 0 && pixelCrop.width === originalWidth && pixelCrop.height === originalHeight;
 
-    if (isFullImageCrop && !adjustments.aspectRatio) {
-      if (adjustments.crop !== null) setAdjustments(prev => ({ ...prev, crop: null }));
-    } else if (JSON.stringify(pixelCrop) !== JSON.stringify(adjustments.crop)) {
-      setAdjustments(prev => ({ ...prev, crop: pixelCrop }));
+    if (JSON.stringify(newPixelCrop) !== JSON.stringify(adjustments.crop)) {
+      setAdjustments(prev => ({ ...prev, crop: newPixelCrop }));
     }
-  }, [selectedImage, adjustments.aspectRatio, adjustments.crop, setAdjustments]);
+  }, [selectedImage, adjustments.crop, setAdjustments]);
 
   const handleUpdateMask = useCallback((id, newProps) => {
     setAdjustments(prev => ({

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
@@ -127,9 +127,13 @@ const FullScreenViewer = memo(({ url, isLoading, onClose }) => {
   );
 });
 
-const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave }) => {
+const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave, adjustments }) => {
   const shapeRef = useRef();
   const trRef = useRef();
+
+  const crop = adjustments.crop;
+  const cropX = crop ? crop.x : 0;
+  const cropY = crop ? crop.y : 0;
 
   useEffect(() => {
     if (isSelected && trRef.current) {
@@ -148,20 +152,20 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     onUpdate(mask.id, {
       geometry: {
         ...mask.geometry,
-        x: node.x() / scale,
-        y: node.y() / scale,
+        x: (node.x() / scale) + cropX,
+        y: (node.y() / scale) + cropY,
         radiusX: (node.radiusX() * scaleX) / scale,
         radiusY: (node.radiusY() * scaleY) / scale,
       },
       rotation: node.rotation(),
     });
-  }, [mask.id, mask.geometry, onUpdate, scale]);
+  }, [mask.id, mask.geometry, onUpdate, scale, cropX, cropY]);
 
   const handleDragEnd = useCallback((e) => {
     onUpdate(mask.id, {
-      geometry: { ...mask.geometry, x: e.target.x() / scale, y: e.target.y() / scale },
+      geometry: { ...mask.geometry, x: (e.target.x() / scale) + cropX, y: (e.target.y() / scale) + cropY },
     });
-  }, [mask.id, mask.geometry, onUpdate, scale]);
+  }, [mask.id, mask.geometry, onUpdate, scale, cropX, cropY]);
 
   if (!mask.visible) {
     return null;
@@ -186,8 +190,8 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
       <>
         <Ellipse
           ref={shapeRef}
-          x={mask.geometry.x * scale}
-          y={mask.geometry.y * scale}
+          x={(mask.geometry.x - cropX) * scale}
+          y={(mask.geometry.y - cropY) * scale}
           radiusX={mask.geometry.radiusX * scale}
           radiusY={mask.geometry.radiusY * scale}
           rotation={mask.rotation}
@@ -384,6 +388,7 @@ const ImageCanvas = memo(({
                   onSelect={() => onSelectMask(mask.id)}
                   onMaskMouseEnter={() => setIsMaskHovered(true)}
                   onMaskMouseLeave={() => setIsMaskHovered(false)}
+                  adjustments={adjustments}
                 />
               ))}
             </Layer>
@@ -455,7 +460,21 @@ export default function Editor({
   const hasDisplayableImage = finalPreviewUrl || selectedImage.originalUrl || selectedImage.thumbnailUrl;
   const showSpinner = isLoading && !hasDisplayableImage;
 
-  const imageRenderSize = useImageRenderSize(imageContainerRef, selectedImage);
+  const croppedDimensions = useMemo(() => {
+    if (adjustments.crop) {
+        return { width: adjustments.crop.width, height: adjustments.crop.height };
+    }
+    if (selectedImage) {
+        const rotation = adjustments.rotation || 0;
+        const isSwapped = Math.abs(rotation % 180) === 90;
+        const width = isSwapped ? selectedImage.height : selectedImage.width;
+        const height = isSwapped ? selectedImage.width : selectedImage.height;
+        return { width, height };
+    }
+    return null;
+  }, [selectedImage, adjustments.crop, adjustments.rotation]);
+
+  const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions);
 
   useEffect(() => {
     let timer;
@@ -473,41 +492,49 @@ export default function Editor({
       return;
     }
     
-    const { width: originalWidth, height: originalHeight } = selectedImage;
+    const rotation = adjustments.rotation || 0;
+    const isSwapped = Math.abs(rotation % 180) === 90;
+    const cropBaseWidth = isSwapped ? selectedImage.height : selectedImage.width;
+    const cropBaseHeight = isSwapped ? selectedImage.width : selectedImage.height;
+
     const { crop: pixelCrop, aspectRatio } = adjustments;
 
     if (pixelCrop) {
       setCrop({
         unit: '%',
-        x: (pixelCrop.x / originalWidth) * 100,
-        y: (pixelCrop.y / originalHeight) * 100,
-        width: (pixelCrop.width / originalWidth) * 100,
-        height: (pixelCrop.height / originalHeight) * 100,
+        x: (pixelCrop.x / cropBaseWidth) * 100,
+        y: (pixelCrop.y / cropBaseHeight) * 100,
+        width: (pixelCrop.width / cropBaseWidth) * 100,
+        height: (pixelCrop.height / cropBaseHeight) * 100,
       });
     } else {
       setCrop(aspectRatio
-        ? centerAspectCrop(originalWidth, originalHeight, aspectRatio)
+        ? centerAspectCrop(cropBaseWidth, cropBaseHeight, aspectRatio)
         : { unit: '%', width: 100, height: 100, x: 0, y: 0 }
       );
     }
-  }, [isCropping, adjustments.crop, adjustments.aspectRatio, selectedImage]);
+  }, [isCropping, adjustments.crop, adjustments.aspectRatio, adjustments.rotation, selectedImage]);
 
   const handleCropComplete = useCallback((_, pc) => {
     if (!pc.width || !pc.height || !selectedImage?.width) return;
 
-    const { width: originalWidth, height: originalHeight } = selectedImage;
+    const rotation = adjustments.rotation || 0;
+    const isSwapped = Math.abs(rotation % 180) === 90;
+    
+    const cropBaseWidth = isSwapped ? selectedImage.height : selectedImage.width;
+    const cropBaseHeight = isSwapped ? selectedImage.width : selectedImage.height;
     
     const newPixelCrop = {
-      x: Math.round((pc.x / 100) * originalWidth),
-      y: Math.round((pc.y / 100) * originalHeight),
-      width: Math.round((pc.width / 100) * originalWidth),
-      height: Math.round((pc.height / 100) * originalHeight),
+      x: Math.round((pc.x / 100) * cropBaseWidth),
+      y: Math.round((pc.y / 100) * cropBaseHeight),
+      width: Math.round((pc.width / 100) * cropBaseWidth),
+      height: Math.round((pc.height / 100) * cropBaseHeight),
     };
 
     if (JSON.stringify(newPixelCrop) !== JSON.stringify(adjustments.crop)) {
       setAdjustments(prev => ({ ...prev, crop: newPixelCrop }));
     }
-  }, [selectedImage, adjustments.crop, setAdjustments]);
+  }, [selectedImage, adjustments.crop, adjustments.rotation, setAdjustments]);
 
   const handleUpdateMask = useCallback((id, newProps) => {
     setAdjustments(prev => ({

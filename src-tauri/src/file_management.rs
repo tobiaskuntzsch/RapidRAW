@@ -160,7 +160,7 @@ fn generate_thumbnail_data(
 ) -> Result<DynamicImage> {
     let file_bytes = fs::read(path_str)?;
 
-    let (image_for_preview, original_dims): (DynamicImage, (u32, u32)) = if is_raw_file(path_str) {
+    let (base_image, original_dims): (DynamicImage, (u32, u32)) = if is_raw_file(path_str) {
         let raw_info = rawloader::decode(&mut Cursor::new(&file_bytes))?;
         let crops = raw_info.crops;
         let full_width = raw_info.width as u32 - crops[3] as u32 - crops[1] as u32;
@@ -171,14 +171,8 @@ fn generate_thumbnail_data(
         )
     } else {
         let img = image::load_from_memory(&file_bytes)?;
-        let original_dims = img.dimensions();
-        const PROCESSING_PREVIEW_DIM: u32 = 1280;
-        let processing_base = if original_dims.0 > PROCESSING_PREVIEW_DIM {
-            img.thumbnail(PROCESSING_PREVIEW_DIM, PROCESSING_PREVIEW_DIM)
-        } else {
-            img
-        };
-        (processing_base, original_dims)
+        let dims = img.dimensions();
+        (img, dims)
     };
 
     let sidecar_path = get_sidecar_path(path_str);
@@ -188,38 +182,41 @@ fn generate_thumbnail_data(
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata) {
         if !meta.adjustments.is_null() {
+            const THUMBNAIL_PROCESSING_DIM: u32 = 1280;
+            let (full_w, full_h) = original_dims;
+
+            let (processing_base, scale_for_gpu) = 
+                if full_w > THUMBNAIL_PROCESSING_DIM || full_h > THUMBNAIL_PROCESSING_DIM {
+                    let base = if is_raw_file(path_str) { 
+                        base_image 
+                    } else { 
+                        base_image.thumbnail(THUMBNAIL_PROCESSING_DIM, THUMBNAIL_PROCESSING_DIM) 
+                    };
+                    let scale = if full_w > 0 { base.width() as f32 / full_w as f32 } else { 1.0 };
+                    (base, scale)
+                } else {
+                    (base_image, 1.0)
+                };
+
             let rotation_degrees = meta.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
-            let rotated_image = apply_rotation(&image_for_preview, rotation_degrees);
-
-            let (orig_w, orig_h) = original_dims;
-            let (preview_w, preview_h) = rotated_image.dimensions();
-
-            let crop_scale_x = preview_w as f32 / orig_w as f32;
-            let crop_scale_y = preview_h as f32 / orig_h as f32;
+            let rotated_image = apply_rotation(&processing_base, rotation_degrees);
 
             let crop_data: Option<Crop> = serde_json::from_value(meta.adjustments["crop"].clone()).ok();
-            let scaled_crop_json = if let Some(c) = crop_data {
+            let scaled_crop_json = if let Some(c) = &crop_data {
                 serde_json::to_value(Crop {
-                    x: c.x * crop_scale_x as f64,
-                    y: c.y * crop_scale_y as f64,
-                    width: c.width * crop_scale_x as f64,
-                    height: c.height * crop_scale_y as f64,
+                    x: c.x * scale_for_gpu as f64,
+                    y: c.y * scale_for_gpu as f64,
+                    width: c.width * scale_for_gpu as f64,
+                    height: c.height * scale_for_gpu as f64,
                 }).unwrap_or(serde_json::Value::Null)
             } else {
                 serde_json::Value::Null
             };
 
             let cropped_preview = apply_crop(rotated_image, &scaled_crop_json);
-            let crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32 * crop_scale_x, c.y as f32 * crop_scale_y));
-
-            let original_crop_width = crop_data.map_or(orig_w as f64, |c| c.width) as u32;
-            let scale_for_gpu = if original_crop_width > 0 {
-                (cropped_preview.width() as f32 / original_crop_width as f32).min(1.0)
-            } else {
-                1.0
-            };
-
-            let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments, crop_offset, scale_for_gpu);
+            
+            let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+            let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments, unscaled_crop_offset, scale_for_gpu);
 
             if let Ok(processed_image) = gpu_processing::process_and_get_dynamic_image(context, &cropped_preview, gpu_adjustments) {
                 return Ok(processed_image);
@@ -229,16 +226,7 @@ fn generate_thumbnail_data(
         }
     }
 
-    let sidecar_path = get_sidecar_path(path_str);
-    if let Ok(file_content) = fs::read_to_string(sidecar_path) {
-        if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&file_content) {
-            let rotation_degrees = metadata.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
-            let rotated_image = apply_rotation(&image_for_preview, rotation_degrees);
-            return Ok(apply_crop(rotated_image, &metadata.adjustments["crop"]));
-        }
-    }
-
-    Ok(image_for_preview)
+    Ok(base_image)
 }
 
 

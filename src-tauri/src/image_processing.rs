@@ -253,7 +253,7 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
     }
 }
 
-pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, crop_offset: (f32, f32), scale: f32) -> AllAdjustments {
+pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, unscaled_crop_offset: (f32, f32), scale: f32) -> AllAdjustments {
     let global = get_global_adjustments_from_json(js_adjustments);
     let mut masks = [Mask::default(); 16];
     let mut mask_count = 0;
@@ -270,12 +270,12 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, crop_of
                 _ => 0,
             };
 
-            let center_x = (geo["x"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.0;
-            let center_y = (geo["y"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.1;
-            let start_x = (geo["startX"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.0;
-            let start_y = (geo["startY"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.1;
-            let end_x = (geo["endX"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.0;
-            let end_y = (geo["endY"].as_f64().unwrap_or(0.0) as f32 * scale) - crop_offset.1;
+            let center_x = (geo["x"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.0) * scale;
+            let center_y = (geo["y"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.1) * scale;
+            let start_x = (geo["startX"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.0) * scale;
+            let start_y = (geo["startY"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.1) * scale;
+            let end_x = (geo["endX"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.0) * scale;
+            let end_y = (geo["endY"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.1) * scale;
             
             let radius_x = geo["radiusX"].as_f64().unwrap_or(0.0) as f32 * scale;
             let radius_y = geo["radiusY"].as_f64().unwrap_or(0.0) as f32 * scale;

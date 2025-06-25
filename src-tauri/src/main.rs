@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-use image::{DynamicImage, GenericImageView, ImageBuffer, Luma};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Luma, Rgba, RgbaImage, ImageFormat};
 use image::codecs::jpeg::JpegEncoder;
 use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
@@ -556,6 +556,31 @@ fn batch_export_images(
     Ok(())
 }
 
+#[tauri::command]
+fn generate_mask_overlay(
+    mask_def: MaskDefinition,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+) -> Result<String, String> {
+    if let Some(gray_mask) = generate_mask_bitmap(&mask_def, width, height, scale, crop_offset) {
+        let mut rgba_mask = RgbaImage::new(width, height);
+        for (x, y, pixel) in gray_mask.enumerate_pixels() {
+            let intensity = pixel[0];
+            let alpha = (intensity as f32 * 0.5) as u8;
+            rgba_mask.put_pixel(x, y, Rgba([255, 0, 0, alpha]));
+        }
+
+        let mut buf = Cursor::new(Vec::new());
+        rgba_mask.write_to(&mut buf, ImageFormat::Png).map_err(|e| e.to_string())?;
+        
+        let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
+        Ok(format!("data:image/png;base64,{}", base64_str))
+    } else {
+        Ok("".to_string())
+    }
+}
 
 #[tauri::command]
 fn save_metadata_and_update_thumbnail(
@@ -945,6 +970,7 @@ fn main() {
             save_presets,
             generate_preset_preview,
             generate_uncropped_preview,
+            generate_mask_overlay, // <-- ADDED
             load_settings,
             save_settings,
             reset_adjustments_for_paths,

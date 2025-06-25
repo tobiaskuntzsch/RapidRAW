@@ -3,9 +3,12 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Eye, EyeOff, ArrowLeft, Maximize, X, Loader2, Undo, Redo } from 'lucide-react';
-import { Stage, Layer, Ellipse, Line, Transformer } from 'react-konva';
+import { Stage, Layer, Ellipse, Line, Transformer, Group, Circle } from 'react-konva';
 import clsx from 'clsx';
+import { invoke } from '@tauri-apps/api/core';
+import debounce from 'lodash.debounce';
 
+// ... (centerAspectCrop, useKeydown, useImageRenderSize, FullScreenViewer are unchanged)
 function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
   return centerCrop(
     makeAspectCrop({ unit: '%', width: 100 }, aspect, mediaWidth, mediaHeight),
@@ -127,7 +130,6 @@ const FullScreenViewer = memo(({ url, isLoading, onClose }) => {
   );
 });
 
-// UPDATED: This component now reads from `mask.parameters` and updates it.
 const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave, adjustments }) => {
   const shapeRef = useRef();
   const trRef = useRef();
@@ -137,7 +139,7 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   const cropY = crop ? crop.y : 0;
 
   useEffect(() => {
-    if (isSelected && trRef.current) {
+    if (isSelected && trRef.current && shapeRef.current) {
       trRef.current.nodes([shapeRef.current]);
       trRef.current.getLayer().batchDraw();
     }
@@ -180,13 +182,11 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   const commonProps = {
     onClick: onSelect,
     onTap: onSelect,
-    onMouseEnter: onMaskMouseEnter,
-    onMouseLeave: onMaskMouseLeave,
-    draggable: true,
     stroke: isSelected ? '#0ea5e9' : 'white',
     strokeWidth: isSelected ? 2 : 1,
     strokeScaleEnabled: false,
     dash: [4, 4],
+    opacity: isSelected ? 1 : 0.7,
   };
 
   if (mask.type === 'radial') {
@@ -202,6 +202,9 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
           rotation={rotation}
           onDragEnd={handleDragEnd}
           onTransformEnd={handleTransformEnd}
+          draggable
+          onMouseEnter={onMaskMouseEnter}
+          onMouseLeave={onMaskMouseLeave}
           {...commonProps}
         />
         {isSelected && (
@@ -212,14 +215,158 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   }
 
   if (mask.type === 'linear') {
-    const { startX, startY, endX, endY, rotation } = mask.parameters;
+    const { startX, startY, endX, endY, range = 50 } = mask.parameters;
+
+    // Apply scaling and crop offset
+    const sX = (startX - cropX) * scale;
+    const sY = (startY - cropY) * scale;
+    const eX = (endX - cropX) * scale;
+    const eY = (endY - cropY) * scale;
+    const r = range * scale;
+
+    // Calculate vectors and geometry for drawing
+    const dx = eX - sX;
+    const dy = eY - sY;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
+    
+    // Perpendicular vector (normalized)
+    const pDx = -dy / (len || 1);
+    const pDy = dx / (len || 1);
+
+    const lineProps = {
+      ...commonProps,
+      strokeWidth: isSelected ? 1.5 : 1,
+      dash: [6, 6],
+    };
+
+    const handleGroupDragEnd = (e) => {
+      const group = e.target;
+      const moveX = group.x();
+      const moveY = group.y();
+      onUpdate(mask.id, {
+        parameters: {
+          ...mask.parameters,
+          startX: startX + moveX / scale,
+          startY: startY + moveY / scale,
+          endX: endX + moveX / scale,
+          endY: endY + moveY / scale,
+        }
+      });
+      group.position({ x: 0, y: 0 }); // Reset group position
+    };
+
+    const handlePointDrag = (e, point) => {
+      const newParams = { ...mask.parameters };
+      if (point === 'start') {
+        newParams.startX = (e.target.x() / scale) + cropX;
+        newParams.startY = (e.target.y() / scale) + cropY;
+      } else {
+        newParams.endX = (e.target.x() / scale) + cropX;
+        newParams.endY = (e.target.y() / scale) + cropY;
+      }
+      onUpdate(mask.id, { parameters: newParams });
+    };
+    
+    const handleRangeDrag = (e, side) => {
+        const pos = e.target.getAbsolutePosition();
+        const group = e.target.parent;
+        const groupPos = group.getAbsolutePosition();
+        
+        // Vector from group center to dragged line
+        const dragVecX = pos.x - groupPos.x;
+        const dragVecY = pos.y - groupPos.y;
+
+        // Project this vector onto the perpendicular vector to get the new distance
+        const newDist = dragVecX * pDx + dragVecY * pDy;
+        
+        onUpdate(mask.id, {
+            parameters: { ...mask.parameters, range: Math.abs(newDist / scale) }
+        });
+    };
+
     return (
-      <Line
-        points={[(startX - cropX) * scale, (startY - cropY) * scale, (endX - cropX) * scale, (endY - cropY) * scale]}
-        rotation={rotation}
-        {...commonProps}
-        draggable={false} // Dragging logic for linear would be more complex (start/end points)
-      />
+      <Group
+        draggable={isSelected}
+        onDragEnd={handleGroupDragEnd}
+        onMouseEnter={(e) => {
+          onMaskMouseEnter();
+          const stage = e.target.getStage();
+          if (stage) stage.container().style.cursor = 'move';
+        }}
+        onMouseLeave={(e) => {
+          onMaskMouseLeave();
+          const stage = e.target.getStage();
+          if (stage) stage.container().style.cursor = 'default';
+        }}
+        onClick={onSelect}
+        onTap={onSelect}
+      >
+        {/* Center Line */}
+        <Line points={[sX, sY, eX, eY]} {...lineProps} dash={[2,3]} />
+
+        {/* Start Handle (100% side) */}
+        <Line
+          points={[sX - pDx * r, sY - pDy * r, eX - pDx * r, eY - pDy * r]}
+          {...lineProps}
+          draggable={isSelected}
+          onDragMove={(e) => handleRangeDrag(e, 'start')}
+          dragBoundFunc={function(pos) {
+              const selfPos = this.getAbsolutePosition();
+              const groupPos = this.parent.getAbsolutePosition();
+              const relX = selfPos.x - groupPos.x;
+              const relY = selfPos.y - groupPos.y;
+              const newX = pos.x - groupPos.x;
+              const newY = pos.y - groupPos.y;
+              const projectedDist = (newX * pDx + newY * pDy);
+              return {
+                  x: groupPos.x + projectedDist * pDx,
+                  y: groupPos.y + projectedDist * pDy,
+              };
+          }}
+          onMouseEnter={(e) => { e.target.getStage().container().style.cursor = 'row-resize'; onMaskMouseEnter(); }}
+          onMouseLeave={(e) => { e.target.getStage().container().style.cursor = 'move'; onMaskMouseLeave(); }}
+        />
+
+        {/* End Handle (0% side) */}
+        <Line
+          points={[sX + pDx * r, sY + pDy * r, eX + pDx * r, eY + pDy * r]}
+          {...lineProps}
+          draggable={isSelected}
+          onDragMove={(e) => handleRangeDrag(e, 'end')}
+          dragBoundFunc={function(pos) {
+              const selfPos = this.getAbsolutePosition();
+              const groupPos = this.parent.getAbsolutePosition();
+              const newX = pos.x - groupPos.x;
+              const newY = pos.y - groupPos.y;
+              const projectedDist = (newX * pDx + newY * pDy);
+              return {
+                  x: groupPos.x + projectedDist * pDx,
+                  y: groupPos.y + projectedDist * pDy,
+              };
+          }}
+          onMouseEnter={(e) => { e.target.getStage().container().style.cursor = 'row-resize'; onMaskMouseEnter(); }}
+          onMouseLeave={(e) => { e.target.getStage().container().style.cursor = 'move'; onMaskMouseLeave(); }}
+        />
+
+        {/* Rotation/Position Handles */}
+        {isSelected && (
+          <>
+            <Circle
+              x={sX} y={sY} radius={8 / scale} stroke="#0ea5e9" strokeWidth={2} draggable
+              onDragMove={(e) => handlePointDrag(e, 'start')}
+              onMouseEnter={(e) => { e.target.getStage().container().style.cursor = 'grab'; onMaskMouseEnter(); }}
+              onMouseLeave={(e) => { e.target.getStage().container().style.cursor = 'move'; onMaskMouseLeave(); }}
+            />
+            <Circle
+              x={eX} y={eY} radius={8 / scale} fill="white" stroke="#0ea5e9" strokeWidth={2} draggable
+              onDragMove={(e) => handlePointDrag(e, 'end')}
+              onMouseEnter={(e) => { e.target.getStage().container().style.cursor = 'grab'; onMaskMouseEnter(); }}
+              onMouseLeave={(e) => { e.target.getStage().container().style.cursor = 'move'; onMaskMouseLeave(); }}
+            />
+          </>
+        )}
+      </Group>
     );
   }
   return null;
@@ -255,7 +402,7 @@ const EditorToolbar = memo(({ onBackToLibrary, selectedImage, isLoading, onToggl
 const ImageCanvas = memo(({
   isCropping, crop, setCrop, handleCropComplete, adjustments, selectedImage,
   isMasking, imageRenderSize, showOriginal, finalPreviewUrl, isAdjusting,
-  uncroppedAdjustedPreviewUrl,
+  uncroppedAdjustedPreviewUrl, maskOverlayUrl,
   onSelectMask, activeMaskId, handleUpdateMask, isMaskHovered, setIsMaskHovered
 }) => {
   const [isCropViewVisible, setIsCropViewVisible] = useState(false);
@@ -366,6 +513,21 @@ const ImageCanvas = memo(({
                 }}
               />
             ))}
+            {isMasking && maskOverlayUrl && (
+              <img
+                src={maskOverlayUrl}
+                alt="Mask Overlay"
+                className="absolute object-contain pointer-events-none"
+                style={{
+                  width: `${imageRenderSize.width}px`,
+                  height: `${imageRenderSize.height}px`,
+                  left: `${imageRenderSize.offsetX}px`,
+                  top: `${imageRenderSize.offsetY}px`,
+                  opacity: showOriginal ? 0 : 1,
+                  transition: 'opacity 150ms ease-in-out',
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -448,6 +610,7 @@ export default function Editor({
   const [crop, setCrop] = useState();
   const [isMaskHovered, setIsMaskHovered] = useState(false);
   const [isLoaderVisible, setIsLoaderVisible] = useState(false);
+  const [maskOverlayUrl, setMaskOverlayUrl] = useState(null);
   const imageContainerRef = useRef(null);
   const isInitialMount = useRef(true);
 
@@ -482,6 +645,35 @@ export default function Editor({
   }, [selectedImage, adjustments.crop, adjustments.rotation]);
 
   const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions);
+
+  const debouncedGenerateMaskOverlay = useCallback(debounce(async (maskDef, renderSize) => {
+    if (!maskDef || !maskDef.visible || renderSize.width === 0) {
+      setMaskOverlayUrl(null);
+      return;
+    }
+    try {
+      const cropOffset = [adjustments.crop?.x || 0, adjustments.crop?.y || 0];
+      const url = await invoke('generate_mask_overlay', {
+        maskDef,
+        width: Math.round(renderSize.width),
+        height: Math.round(renderSize.height),
+        scale: renderSize.scale,
+        cropOffset,
+      });
+      setMaskOverlayUrl(url);
+    } catch (e) {
+      console.error("Failed to generate mask overlay:", e);
+      setMaskOverlayUrl(null);
+    }
+  }, 100), [adjustments.crop]);
+
+  useEffect(() => {
+    const activeMask = adjustments.masks.find(m => m.id === activeMaskId);
+    debouncedGenerateMaskOverlay(activeMask, imageRenderSize);
+    
+    return () => debouncedGenerateMaskOverlay.cancel();
+  }, [activeMaskId, adjustments.masks, imageRenderSize, debouncedGenerateMaskOverlay]);
+
 
   useEffect(() => {
     let timer;
@@ -622,6 +814,7 @@ export default function Editor({
                 finalPreviewUrl={finalPreviewUrl}
                 isAdjusting={isAdjusting}
                 uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
+                maskOverlayUrl={maskOverlayUrl}
                 onSelectMask={onSelectMask}
                 activeMaskId={activeMaskId}
                 handleUpdateMask={handleUpdateMask}

@@ -4,7 +4,6 @@ import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Transformer, Group, Circle } from 'react-konva';
 import clsx from 'clsx';
 
-// Helper for eraser logic: checks if two lines intersect.
 function linesIntersect(eraserLine, drawnLine) {
   const threshold = (eraserLine.brushSize / 2) + (drawnLine.brushSize / 2);
   for (const p1 of eraserLine.points) {
@@ -17,8 +16,6 @@ function linesIntersect(eraserLine, drawnLine) {
 }
 
 const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave, adjustments }) => {
-  // ... (The entire MaskOverlay component code from your original file goes here)
-  // ... (No changes needed inside the component itself)
   const shapeRef = useRef();
   const trRef = useRef();
 
@@ -71,7 +68,7 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     onClick: onSelect,
     onTap: onSelect,
     stroke: isSelected ? '#0ea5e9' : 'white',
-    strokeWidth: isSelected ? 2 : 1,
+    strokeWidth: isSelected ? 3 : 2,
     strokeScaleEnabled: false,
     dash: [4, 4],
     opacity: isSelected ? 1 : 0.7,
@@ -85,13 +82,15 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
           <Line
             key={i}
             points={line.points.flatMap(p => [(p.x - cropX) * scale, (p.y - cropY) * scale])}
-            stroke={isSelected ? '#0ea5e9' : 'white'}
-            strokeWidth={line.brushSize * scale}
+            stroke={isSelected ? 'transparent' : 'white'}
+            strokeWidth={2} // Increased unselected width
+            dash={[4, 4]}
+            opacity={isSelected ? 0 : 0.7}
+            hitStrokeWidth={line.brushSize * scale}
             strokeScaleEnabled={false}
             tension={0.5}
             lineCap="round"
             lineJoin="round"
-            opacity={isSelected ? 0.8 : 0.3}
           />
         ))}
       </Group>
@@ -140,7 +139,7 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
 
     const lineProps = {
       ...commonProps,
-      strokeWidth: isSelected ? 1.5 : 1,
+      strokeWidth: isSelected ? 2.5 : 2, // Increased unselected width
       dash: [6, 6],
       hitStrokeWidth: 20,
     };
@@ -288,8 +287,6 @@ const ImageCanvas = memo(({
   onSelectMask, activeMaskId, handleUpdateMask, setIsMaskHovered,
   brushSettings
 }) => {
-  // ... (The entire ImageCanvas component code from your original file goes here)
-  // ... (No changes needed inside the component itself)
   const [isCropViewVisible, setIsCropViewVisible] = useState(false);
   const imagePathRef = useRef(null);
   const latestEditedUrlRef = useRef(null);

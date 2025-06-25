@@ -195,6 +195,7 @@ function App() {
   const [isResizing, setIsResizing] = useState(false);
 
   const [copiedAdjustments, setCopiedAdjustments] = useState(null);
+  const [copiedMask, setCopiedMask] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isPasted, setIsPasted] = useState(false);
 
@@ -1219,6 +1220,8 @@ const handleZoomChange = useCallback((newZoomValue) => {
                     activeMaskId={activeMaskId}
                     brushSettings={brushSettings}
                     setBrushSettings={setBrushSettings}
+                    copiedMask={copiedMask}
+                    setCopiedMask={setCopiedMask}
                   />
                 )}
                 {renderedRightPanel === 'presets' && (

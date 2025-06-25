@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Circle, Waves, Brush, Droplet, Sun, Sparkles,
-  Trash2, RotateCcw, ArrowLeft, Eye, EyeOff
+  Trash2, RotateCcw, ArrowLeft, Eye, EyeOff, Edit, Copy, ClipboardPaste, PlusSquare
 } from 'lucide-react';
 import MaskControls from './MaskControls';
 import { INITIAL_MASK_ADJUSTMENTS } from '../../../App';
+import { useContextMenu } from '../../../context/ContextMenuContext';
 
 const MASK_TYPES = [
   { id: 'ai-subject', name: 'Subject', icon: Sparkles, type: 'ai-subject' },
@@ -61,9 +62,10 @@ const BrushTools = ({ settings, setSettings }) => (
 
 export default function MasksPanel({
   adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId,
-  brushSettings, setBrushSettings
+  brushSettings, setBrushSettings, copiedMask, setCopiedMask
 }) {
   const [editingMaskId, setEditingMaskId] = useState(null);
+  const { showContextMenu } = useContextMenu();
 
   const masks = adjustments.masks || [];
 
@@ -112,7 +114,7 @@ export default function MasksPanel({
       case 'color':
       case 'luminance':
       case 'ai-subject':
-        newMask = { ...common, parameters: {} }; // Placeholder for more complex parameters
+        newMask = { ...common, parameters: {} };
         break;
       default:
         return;
@@ -120,13 +122,43 @@ export default function MasksPanel({
 
     setAdjustments(prev => ({ ...prev, masks: [...(prev.masks || []), newMask] }));
     onSelectMask(newMask.id);
-    setEditingMaskId(newMask.id); // Directly go to edit mode for the new mask
+    setEditingMaskId(newMask.id);
   };
 
   const handleDeleteMask = (id) => {
     if (editingMaskId === id) setEditingMaskId(null);
     if (activeMaskId === id) onSelectMask(null);
     setAdjustments(prev => ({ ...prev, masks: (prev.masks || []).filter(mask => mask.id !== id) }));
+  };
+
+  const handleDuplicateMask = (id) => {
+    const maskToDuplicate = masks.find(m => m.id === id);
+    if (!maskToDuplicate) return;
+
+    const newMask = JSON.parse(JSON.stringify(maskToDuplicate));
+    newMask.id = uuidv4();
+    newMask.name = `${maskToDuplicate.name} Copy`;
+
+    setAdjustments(prev => ({ ...prev, masks: [...(prev.masks || []), newMask] }));
+  };
+
+  const handlePasteMask = () => {
+    if (!copiedMask) return;
+    
+    const newMask = JSON.parse(JSON.stringify(copiedMask));
+    newMask.id = uuidv4();
+
+    setAdjustments(prev => ({ ...prev, masks: [...(prev.masks || []), newMask] }));
+  };
+
+  const handlePasteMaskAdjustments = (targetMaskId) => {
+    if (!copiedMask) return;
+    setAdjustments(prev => ({
+      ...prev,
+      masks: prev.masks.map(m => 
+        m.id === targetMaskId ? { ...m, adjustments: JSON.parse(JSON.stringify(copiedMask.adjustments)) } : m
+      )
+    }));
   };
 
   const handleResetAllMasks = () => {
@@ -152,27 +184,51 @@ export default function MasksPanel({
     onSelectMask(null);
   };
 
-  const updateMaskAdjustments = (maskId, newMaskAdjustments) => {
+  const updateMask = (maskId, updatedMaskData) => {
     setAdjustments(prev => ({
       ...prev,
       masks: (prev.masks || []).map(mask =>
-        mask.id === maskId ? { ...mask, adjustments: newMaskAdjustments } : mask
-      ),
-    }));
-  };
-
-  const updateMaskParameters = (maskId, newParams) => {
-    setAdjustments(prev => ({
-      ...prev,
-      masks: (prev.masks || []).map(mask =>
-        mask.id === maskId ? { ...mask, parameters: { ...mask.parameters, ...newParams } } : mask
+        mask.id === maskId ? updatedMaskData : mask
       ),
     }));
   };
 
   const resetCurrentMaskAdjustments = () => {
     if (!editingMaskId) return;
-    updateMaskAdjustments(editingMaskId, { ...INITIAL_MASK_ADJUSTMENTS });
+    const maskToUpdate = masks.find(m => m.id === editingMaskId);
+    if (maskToUpdate) {
+      updateMask(editingMaskId, { ...maskToUpdate, adjustments: { ...INITIAL_MASK_ADJUSTMENTS } });
+    }
+  };
+
+  const handleMaskContextMenu = (event, mask) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const options = [
+      { label: 'Edit Mask', icon: Edit, onClick: () => handleSelectMaskForEditing(mask.id) },
+      { label: 'Duplicate Mask', icon: PlusSquare, onClick: () => handleDuplicateMask(mask.id) },
+      { type: 'separator' },
+      { label: 'Copy Mask', icon: Copy, onClick: () => setCopiedMask(mask) },
+      { label: 'Paste Adjustments', icon: ClipboardPaste, disabled: !copiedMask, onClick: () => handlePasteMaskAdjustments(mask.id) },
+      { type: 'separator' },
+      { label: 'Delete Mask', icon: Trash2, isDestructive: true, onClick: () => handleDeleteMask(mask.id) },
+    ];
+
+    showContextMenu(event.clientX, event.clientY, options);
+  };
+
+  const handlePanelContextMenu = (event) => {
+    if (event.target !== event.currentTarget) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const options = [
+      { label: 'Paste Mask', icon: ClipboardPaste, disabled: !copiedMask, onClick: handlePasteMask },
+    ];
+
+    showContextMenu(event.clientX, event.clientY, options);
   };
 
   const editingMask = masks.find(m => m.id === editingMaskId);
@@ -194,26 +250,9 @@ export default function MasksPanel({
         {editingMask.type === 'brush' && brushSettings && setBrushSettings && (
           <BrushTools settings={brushSettings} setSettings={setBrushSettings} />
         )}
-        {editingMask.type === 'radial' && (
-          <div className="p-4 space-y-4 border-b border-surface">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-text-primary">Feather</label>
-              <span className="text-sm text-text-primary">{(editingMask.parameters.feather * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={editingMask.parameters.feather}
-              onChange={(e) => updateMaskParameters(editingMask.id, { feather: parseFloat(e.target.value) })}
-              className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
-            />
-          </div>
-        )}
         <MaskControls
-          maskAdjustments={editingMask.adjustments}
-          setMaskAdjustments={(newAdjustments) => updateMaskAdjustments(editingMask.id, newAdjustments)}
+          editingMask={editingMask}
+          updateMask={updateMask}
         />
       </div>
     );
@@ -233,7 +272,7 @@ export default function MasksPanel({
         </button>
       </div>
 
-      <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-6">
+      <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-6" onContextMenu={handlePanelContextMenu}>
         <div>
           <p className="text-sm mb-3 font-semibold text-text-primary">Create New Mask</p>
           <div className="grid grid-cols-3 gap-2">
@@ -261,30 +300,24 @@ export default function MasksPanel({
                   <div
                     key={mask.id}
                     onClick={() => handleSelectMaskForEditing(mask.id)}
-                    className={`p-2 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
+                    onContextMenu={(e) => handleMaskContextMenu(e, mask)}
+                    className={`group p-2 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
                       activeMaskId === mask.id ? 'bg-accent/20' : 'bg-surface hover:bg-card-active'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <MaskIcon size={16} className="text-text-secondary" />
                       <span className="font-medium text-sm text-text-primary capitalize">
-                        {mask.type} {index + 1}
+                        {mask.name || `${mask.type} ${index + 1}`}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggleVisibility(mask.id); }}
-                        className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary"
+                        className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-200"
                         title={mask.visible ? "Hide Mask" : "Show Mask"}
                       >
                         {mask.visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteMask(mask.id); }}
-                        className="p-1.5 rounded-full text-text-secondary hover:bg-red-500/20 hover:text-red-400"
-                        title="Delete Mask"
-                      >
-                        <Trash2 size={16} />
                       </button>
                     </div>
                   </div>

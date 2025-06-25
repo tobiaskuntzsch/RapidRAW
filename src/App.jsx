@@ -134,14 +134,6 @@ const Resizer = ({ onMouseDown, direction }) => (
   />
 );
 
-function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
-  return centerCrop(
-    makeAspectCrop({ unit: '%', width: 100 }, aspect, mediaWidth, mediaHeight),
-    mediaWidth,
-    mediaHeight
-  );
-}
-
 function App() {
   const [rootPath, setRootPath] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
@@ -552,7 +544,7 @@ function App() {
   useEffect(() => {
     if (adjustments.aspectRatio !== null && adjustments.crop === null && selectedImage?.width && selectedImage?.height) {
       const { width: imgWidth, height: imgHeight } = selectedImage;
-      const newPercentCrop = centerAspectCrop(imgWidth, imgHeight, adjustments.aspectRatio);
+      const newPercentCrop = centerCrop(makeAspectCrop({ unit: '%', width: 100 }, adjustments.aspectRatio, imgWidth, imgHeight), imgWidth, imgHeight);
 
       const newPixelCrop = {
         x: Math.round((newPercentCrop.x / 100) * imgWidth),
@@ -566,7 +558,7 @@ function App() {
         crop: newPixelCrop,
       }));
     }
-  }, [adjustments.aspectRatio, adjustments.crop, selectedImage?.width, selectedImage?.height]);
+  }, [adjustments.aspectRatio, adjustments.crop, selectedImage?.width, selectedImage?.height, setAdjustments]);
 
   const handleOpenFolder = async () => {
     try {

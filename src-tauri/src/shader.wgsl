@@ -50,19 +50,7 @@ struct GlobalAdjustments {
     blue_curve_count: u32,
 }
 
-struct Mask {
-    mask_type: u32,
-    invert: u32,
-    feather: f32,
-    rotation: f32,
-    center_x: f32,
-    center_y: f32,
-    radius_x: f32,
-    radius_y: f32,
-    start_x: f32,
-    start_y: f32,
-    end_x: f32,
-    end_y: f32,
+struct MaskAdjustmentUniform {
     exposure: f32,
     contrast: f32,
     highlights: f32,
@@ -73,13 +61,17 @@ struct Mask {
     temperature: f32,
     tint: f32,
     vibrance: f32,
+    invert: u32,
     _pad1: f32,
     _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
+    _pad5: f32,
 }
 
 struct AllAdjustments {
     global: GlobalAdjustments,
-    masks: array<Mask, 16>,
+    mask_adjustments: array<MaskAdjustmentUniform, 16>,
     mask_count: u32,
     tile_offset_x: u32,
     tile_offset_y: u32,
@@ -89,6 +81,7 @@ struct AllAdjustments {
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var<uniform> adjustments: AllAdjustments;
+@group(0) @binding(3) var mask_textures: texture_2d_array<f32>;
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
@@ -192,7 +185,7 @@ fn apply_curve(val: f32, points: array<Point, 16>, count: u32) -> f32 {
     return clamp(points[1].y / 255.0, 0.0, 1.0);
 }
 
-fn apply_basic_adjustments(color: vec3<f32>, exp: f32, con: f32, hi: f32, sh: f32, wh: f32, bl: f32, sat: f32, temp: f32, tnt: f32, vib: f32) -> vec3<f32> {
+fn apply_tonal_adjustments(color: vec3<f32>, exp: f32, con: f32, hi: f32, sh: f32, wh: f32, bl: f32) -> vec3<f32> {
     var rgb = color;
     rgb *= pow(2.0, exp);
     let black_point = bl;
@@ -204,6 +197,11 @@ fn apply_basic_adjustments(color: vec3<f32>, exp: f32, con: f32, hi: f32, sh: f3
     rgb += sh * shadow_mix;
     rgb += hi * highlight_mix;
     rgb = 0.5 + (rgb - 0.5) * (1.0 + con);
+    return rgb;
+}
+
+fn apply_color_adjustments(color: vec3<f32>, sat: f32, temp: f32, tnt: f32, vib: f32) -> vec3<f32> {
+    var rgb = color;
     let wb_multiplier = vec3<f32>(1.0 + temp + tnt, 1.0, 1.0 - temp + tnt);
     rgb *= wb_multiplier;
     var hsv = rgb_to_hsv(rgb);
@@ -218,31 +216,6 @@ fn apply_basic_adjustments(color: vec3<f32>, exp: f32, con: f32, hi: f32, sh: f3
     }
     hsv.y = clamp(hsv.y, 0.0, 1.0);
     return hsv_to_rgb(hsv);
-}
-
-fn get_radial_mask_influence(pixel_coords: vec2<f32>, mask: Mask) -> f32 {
-    let dx = pixel_coords.x - mask.center_x;
-    let dy = pixel_coords.y - mask.center_y;
-    let cos_rot = cos(-mask.rotation);
-    let sin_rot = sin(-mask.rotation);
-    let rot_dx = dx * cos_rot - dy * sin_rot;
-    let rot_dy = dx * sin_rot + dy * cos_rot;
-    let dist_x = rot_dx / max(mask.radius_x, 0.001);
-    let dist_y = rot_dy / max(mask.radius_y, 0.001);
-    let dist = sqrt(dist_x * dist_x + dist_y * dist_y);
-    return 1.0 - smoothstep(1.0 - mask.feather, 1.0, dist);
-}
-
-fn get_linear_mask_influence(pixel_coords: vec2<f32>, mask: Mask) -> f32 {
-    let start_point = vec2<f32>(mask.start_x, mask.start_y);
-    let end_point = vec2<f32>(mask.end_x, mask.end_y);
-    let gradient_vec = end_point - start_point;
-    let len_sq = dot(gradient_vec, gradient_vec);
-    if (len_sq < 0.001) { return 0.0; }
-    let pixel_vec = pixel_coords - start_point;
-    let t = dot(pixel_vec, gradient_vec) / len_sq;
-    let half_feather = mask.feather * 0.5;
-    return smoothstep(0.0 - half_feather, 0.0 + half_feather, t) - smoothstep(1.0 - half_feather, 1.0 + half_feather, t);
 }
 
 fn rand(co: vec2<f32>) -> f32 {
@@ -383,9 +356,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let absolute_coord_i = vec2<i32>(id.xy) + vec2<i32>(i32(adjustments.tile_offset_x), i32(adjustments.tile_offset_y));
 
+    // Global Adjustments
     processed_rgb = apply_noise_reduction(processed_rgb, absolute_coord_i, adjustments.global.luma_noise_reduction, adjustments.global.color_noise_reduction);
     processed_rgb = apply_dehaze_fast(processed_rgb, absolute_coord_i, adjustments.global.dehaze);
-    processed_rgb = apply_basic_adjustments(processed_rgb, adjustments.global.exposure, adjustments.global.contrast, adjustments.global.highlights, adjustments.global.shadows, adjustments.global.whites, adjustments.global.blacks, adjustments.global.saturation, adjustments.global.temperature, adjustments.global.tint, adjustments.global.vibrance);
+    processed_rgb = apply_tonal_adjustments(processed_rgb, adjustments.global.exposure, adjustments.global.contrast, adjustments.global.highlights, adjustments.global.shadows, adjustments.global.whites, adjustments.global.blacks);
+    processed_rgb = apply_color_adjustments(processed_rgb, adjustments.global.saturation, adjustments.global.temperature, adjustments.global.tint, adjustments.global.vibrance);
     
     processed_rgb = apply_local_contrast(processed_rgb, absolute_coord_i, 2, adjustments.global.sharpness);
     processed_rgb = apply_local_contrast(processed_rgb, absolute_coord_i, 6, adjustments.global.clarity);
@@ -411,23 +386,26 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let curved_srgb = vec3<f32>(apply_curve(luma_adjusted_srgb.r, adjustments.global.red_curve, adjustments.global.red_curve_count), apply_curve(luma_adjusted_srgb.g, adjustments.global.green_curve, adjustments.global.green_curve_count), apply_curve(luma_adjusted_srgb.b, adjustments.global.blue_curve, adjustments.global.blue_curve_count));
     processed_rgb = srgb_to_linear(curved_srgb);
 
-    // For masks, we need the coordinate relative to the full (cropped) image.
-    let absolute_coord_pixels = vec2<f32>(id.xy) + vec2<f32>(f32(adjustments.tile_offset_x), f32(adjustments.tile_offset_y));
-    for (var i = 0u; i < 16u; i = i + 1u) {
-        if (i >= adjustments.mask_count) { break; }
-        let mask = adjustments.masks[i];
-        var influence = 0.0;
-        if (mask.mask_type == 1u) { influence = get_radial_mask_influence(absolute_coord_pixels, mask); } 
-        else if (mask.mask_type == 2u) { influence = get_linear_mask_influence(absolute_coord_pixels, mask); }
-        if (mask.invert == 1u) { influence = 1.0 - influence; }
-        if (influence > 0.001) { 
-            let mask_adjusted_rgb = apply_basic_adjustments(processed_rgb, mask.exposure, mask.contrast, mask.highlights, mask.shadows, mask.whites, mask.blacks, mask.saturation, mask.temperature, mask.tint, mask.vibrance); 
-            processed_rgb = mix(processed_rgb, mask_adjusted_rgb, influence); 
+    // Local Adjustments (Masks)
+    for (var i = 0u; i < adjustments.mask_count; i = i + 1u) {
+        let mask_adj = adjustments.mask_adjustments[i];
+
+        var influence = textureLoad(mask_textures, id.xy, i, 0).r;
+        
+        if (mask_adj.invert == 1u) {
+            influence = 1.0 - influence;
+        }
+
+        if (influence > 0.001) {
+            var mask_adjusted_rgb = apply_tonal_adjustments(processed_rgb, mask_adj.exposure, mask_adj.contrast, mask_adj.highlights, mask_adj.shadows, mask_adj.whites, mask_adj.blacks);
+            mask_adjusted_rgb = apply_color_adjustments(mask_adjusted_rgb, mask_adj.saturation, mask_adj.temperature, mask_adj.tint, mask_adj.vibrance);
+            processed_rgb = mix(processed_rgb, mask_adjusted_rgb, influence);
         }
     }
 
     var final_rgb = linear_to_srgb(processed_rgb);
 
+    // Post-processing effects
     let out_coord = vec2<f32>(f32(id.x), f32(id.y));
     if (adjustments.global.vignette_amount != 0.0) {
         let v_amount = adjustments.global.vignette_amount;

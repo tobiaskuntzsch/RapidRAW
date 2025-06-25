@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bytemuck;
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, Luma};
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::AppState;
@@ -16,12 +16,17 @@ pub fn get_or_init_gpu_context(state: &tauri::State<AppState>) -> Result<GpuCont
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .ok_or("Failed to find a wgpu adapter.")?;
 
+    let mut required_features = wgpu::Features::TEXTURE_BINDING_ARRAY;
+    if adapter.features().contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) {
+        required_features |= wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+    }
+
     let limits = adapter.limits();
 
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: Some("Processing Device"),
-            required_features: wgpu::Features::empty(),
+            required_features,
             required_limits: limits.clone(),
         },
         None,
@@ -89,6 +94,7 @@ pub fn run_gpu_processing(
     context: &GpuContext,
     image: &DynamicImage,
     adjustments: AllAdjustments,
+    mask_bitmaps: &[ImageBuffer<Luma<u8>, Vec<u8>>],
 ) -> Result<Vec<u8>, String> {
     let device = &context.device;
     let queue = &context.queue;
@@ -103,6 +109,7 @@ pub fn run_gpu_processing(
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Bind Group Layout"),
         entries: &[
+            // Input Image
             wgpu::BindGroupLayoutEntry {
                 binding: 0, visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Texture {
@@ -110,6 +117,7 @@ pub fn run_gpu_processing(
                     view_dimension: wgpu::TextureViewDimension::D2, multisampled: false,
                 }, count: None,
             },
+            // Output Image
             wgpu::BindGroupLayoutEntry {
                 binding: 1, visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::StorageTexture {
@@ -118,12 +126,23 @@ pub fn run_gpu_processing(
                     view_dimension: wgpu::TextureViewDimension::D2,
                 }, count: None,
             },
+            // Adjustments Uniform
             wgpu::BindGroupLayoutEntry {
                 binding: 2, visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false, min_binding_size: None,
                 }, count: None,
+            },
+            // Mask Texture Array
+            wgpu::BindGroupLayoutEntry {
+                binding: 3, visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
             },
         ],
     });
@@ -137,6 +156,18 @@ pub fn run_gpu_processing(
     let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("Compute Pipeline"), layout: Some(&pipeline_layout),
         module: &shader_module, entry_point: "main",
+    });
+
+    let num_masks = mask_bitmaps.len();
+    // Create the texture once. It's cheap and can be reused to create views.
+    let empty_mask_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Empty Mask Texture"),
+        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        mip_level_count: 1, sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
     });
 
     if width <= max_dim && height <= max_dim {
@@ -165,12 +196,53 @@ pub fn run_gpu_processing(
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
         });
 
+        let mask_texture_array_view = if num_masks > 0 {
+            let mask_texture_array = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Mask Texture Array"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: num_masks as u32 },
+                mip_level_count: 1, sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+
+            for (i, mask_bitmap) in mask_bitmaps.iter().enumerate() {
+                queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &mask_texture_array,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    mask_bitmap,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(width),
+                        rows_per_image: Some(height),
+                    },
+                    texture_size,
+                );
+            }
+            mask_texture_array.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            })
+        } else {
+            // Create a new view from the empty texture.
+            empty_mask_texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            })
+        };
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Single Texture Bind Group"), layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) },
                 wgpu::BindGroupEntry { binding: 2, resource: adjustments_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&mask_texture_array_view) },
             ],
         });
 
@@ -186,6 +258,7 @@ pub fn run_gpu_processing(
         return read_texture_data(device, queue, &output_texture, texture_size);
     }
 
+    // Tiling logic for very large images
     let tile_size = (max_dim / 2).min(2048);
     let img_rgba = image.to_rgba8();
     let mut final_pixels = vec![0u8; (width * height * 4) as usize];
@@ -241,12 +314,55 @@ pub fn run_gpu_processing(
                 usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
             });
 
+            // Create a texture array with cropped versions of the masks for this tile
+            let mask_texture_array_view = if num_masks > 0 {
+                let mask_texture_array = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Tile Mask Texture Array"),
+                    size: wgpu::Extent3d { width: tile_width, height: tile_height, depth_or_array_layers: num_masks as u32 },
+                    mip_level_count: 1, sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+
+                for (i, full_mask_bitmap) in mask_bitmaps.iter().enumerate() {
+                    let cropped_mask = image::imageops::crop_imm(full_mask_bitmap, x_start, y_start, tile_width, tile_height).to_image();
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture: &mask_texture_array,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &cropped_mask,
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(tile_width),
+                            rows_per_image: Some(tile_height),
+                        },
+                        texture_size,
+                    );
+                }
+                mask_texture_array.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                })
+            } else {
+                // Create a new view from the empty texture for this tile.
+                empty_mask_texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                })
+            };
+
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Tile Bind Group"), layout: &bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input_texture.create_view(&Default::default())) },
                     wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&output_texture.create_view(&Default::default())) },
                     wgpu::BindGroupEntry { binding: 2, resource: adjustments_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&mask_texture_array_view) },
                 ],
             });
 
@@ -280,8 +396,9 @@ pub fn process_and_get_dynamic_image(
     context: &GpuContext,
     base_image: &DynamicImage,
     all_adjustments: AllAdjustments,
+    mask_bitmaps: &[ImageBuffer<Luma<u8>, Vec<u8>>],
 ) -> Result<DynamicImage, String> {
-    let processed_pixels = run_gpu_processing(context, base_image, all_adjustments)?;
+    let processed_pixels = run_gpu_processing(context, base_image, all_adjustments, mask_bitmaps)?;
     let (width, height) = base_image.dimensions();
     let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, processed_pixels)
         .ok_or("Failed to create image buffer from GPU data")?;

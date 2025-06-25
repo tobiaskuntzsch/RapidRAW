@@ -4,6 +4,7 @@ mod image_processing;
 mod file_management;
 mod gpu_processing;
 mod raw_processing;
+mod mask_generation;
 
 use std::io::Cursor;
 use std::sync::Mutex;
@@ -13,7 +14,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Luma};
 use image::codecs::jpeg::JpegEncoder;
 use tauri::{Manager, Emitter};
 use base64::{Engine as _, engine::general_purpose};
@@ -29,6 +30,7 @@ use crate::image_processing::{
 };
 use crate::file_management::get_sidecar_path;
 use crate::raw_processing::DemosaicAlgorithm;
+use crate::mask_generation::{MaskDefinition, generate_mask_bitmap};
 
 #[derive(Clone)]
 pub struct PreviewCache {
@@ -238,11 +240,21 @@ fn apply_adjustments(
         };
         
         let final_preview_base = apply_crop(rotated_image, &scaled_crop_json);
+        let (preview_width, preview_height) = final_preview_base.dimensions();
 
         let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
-        let final_adjustments = get_all_adjustments_from_json(&adjustments_clone, unscaled_crop_offset, scale_for_gpu);
 
-        if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments) {
+        let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+            .and_then(|m| serde_json::from_value(m.clone()).ok())
+            .unwrap_or_else(Vec::new);
+
+        let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+            .filter_map(|def| generate_mask_bitmap(def, preview_width, preview_height, scale_for_gpu, (unscaled_crop_offset.0 * scale_for_gpu, unscaled_crop_offset.1 * scale_for_gpu)))
+            .collect();
+
+        let final_adjustments = get_all_adjustments_from_json(&adjustments_clone);
+
+        if let Ok(final_processed_image) = process_and_get_dynamic_image(&context, &final_preview_base, final_adjustments, &mask_bitmaps) {
             if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&final_processed_image) {
                 let _ = app_handle.emit("histogram-update", histogram_data);
             }
@@ -282,9 +294,19 @@ fn generate_uncropped_preview(
                 (original_image.clone(), 1.0)
             };
         
-        let uncropped_adjustments = get_all_adjustments_from_json(&adjustments_clone, (0.0, 0.0), scale_for_gpu);
+        let (preview_width, preview_height) = processing_base.dimensions();
 
-        if let Ok(processed_image) = process_and_get_dynamic_image(&context, &processing_base, uncropped_adjustments) {
+        let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+            .and_then(|m| serde_json::from_value(m.clone()).ok())
+            .unwrap_or_else(Vec::new);
+
+        let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+            .filter_map(|def| generate_mask_bitmap(def, preview_width, preview_height, scale_for_gpu, (0.0, 0.0)))
+            .collect();
+
+        let uncropped_adjustments = get_all_adjustments_from_json(&adjustments_clone);
+
+        if let Ok(processed_image) = process_and_get_dynamic_image(&context, &processing_base, uncropped_adjustments, &mask_bitmaps) {
             if let Ok(base64_str) = encode_to_base64(&processed_image, 85) {
                 let _ = app_handle.emit("preview-update-uncropped", base64_str);
             }
@@ -314,12 +336,21 @@ fn generate_fullscreen_preview(
     let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
     let rotated_image = apply_rotation(&base_image, rotation_degrees);
     let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
+    let (img_w, img_h) = cropped_image.dimensions();
     
     let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
     let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
 
-    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, unscaled_crop_offset, 1.0);
-    let final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
+    let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_else(Vec::new);
+
+    let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+        .filter_map(|def| generate_mask_bitmap(def, img_w, img_h, 1.0, unscaled_crop_offset))
+        .collect();
+
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments);
+    let final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments, &mask_bitmaps)?;
     
     encode_to_base64(&final_image, 95)
 }
@@ -347,12 +378,21 @@ fn export_image(
     let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
     let rotated_image = apply_rotation(&base_image, rotation_degrees);
     let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
+    let (img_w, img_h) = cropped_image.dimensions();
 
     let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
     let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
 
-    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, unscaled_crop_offset, 1.0);
-    let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
+    let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_else(Vec::new);
+
+    let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+        .filter_map(|def| generate_mask_bitmap(def, img_w, img_h, 1.0, unscaled_crop_offset))
+        .collect();
+
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments);
+    let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments, &mask_bitmaps)?;
 
     if let Some(resize_opts) = export_settings.resize {
         let (current_w, current_h) = final_image.dimensions();
@@ -441,12 +481,21 @@ fn batch_export_images(
             let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
             let rotated_image = apply_rotation(&base_image, rotation_degrees);
             let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
+            let (img_w, img_h) = cropped_image.dimensions();
 
             let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
             let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
 
-            let all_adjustments = get_all_adjustments_from_json(&js_adjustments, unscaled_crop_offset, 1.0);
-            let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
+            let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+                .and_then(|m| serde_json::from_value(m.clone()).ok())
+                .unwrap_or_else(Vec::new);
+
+            let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+                .filter_map(|def| generate_mask_bitmap(def, img_w, img_h, 1.0, unscaled_crop_offset))
+                .collect();
+
+            let all_adjustments = get_all_adjustments_from_json(&js_adjustments);
+            let mut final_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments, &mask_bitmaps)?;
 
             if let Some(resize_opts) = &export_settings.resize {
                 let (current_w, current_h) = final_image.dimensions();
@@ -709,13 +758,22 @@ fn generate_preset_preview(
     let rotation_degrees = js_adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
     let rotated_image = apply_rotation(&preview_base, rotation_degrees);
     let cropped_image = apply_crop(rotated_image, &js_adjustments["crop"]);
+    let (img_w, img_h) = cropped_image.dimensions();
 
     let crop_data: Option<Crop> = serde_json::from_value(js_adjustments["crop"].clone()).ok();
     let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
 
-    let all_adjustments = get_all_adjustments_from_json(&js_adjustments, unscaled_crop_offset, 1.0);
+    let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_else(Vec::new);
+
+    let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+        .filter_map(|def| generate_mask_bitmap(def, img_w, img_h, 1.0, unscaled_crop_offset))
+        .collect();
+
+    let all_adjustments = get_all_adjustments_from_json(&js_adjustments);
     
-    let processed_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments)?;
+    let processed_image = process_and_get_dynamic_image(&context, &cropped_image, all_adjustments, &mask_bitmaps)?;
     
     encode_to_base64(&processed_image, 50)
 }

@@ -26,27 +26,46 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
     let newMask;
     const common = {
       id: uuidv4(),
+      name: `${type.charAt(0).toUpperCase() + type.slice(1)} Mask`,
       type,
-      invert: false,
-      rotation: 0,
       visible: true,
+      invert: false,
       adjustments: { ...INITIAL_MASK_ADJUSTMENTS },
     };
 
-    // Note: Backend logic will be needed to handle the geometry and application of new mask types.
-    // This setup provides the UI foundation.
+    // UPDATED: Create masks with a 'parameters' object instead of 'geometry'.
+    // The coordinates are relative to the full, uncropped image.
     switch (type) {
       case 'radial':
-        newMask = { ...common, feather: 0.5, geometry: { x: width / 2, y: height / 2, radiusX: width / 4, radiusY: width / 4 } };
+        newMask = { 
+          ...common, 
+          parameters: { 
+            centerX: width / 2, 
+            centerY: height / 2, 
+            radiusX: width / 4, 
+            radiusY: width / 4,
+            rotation: 0,
+            feather: 0.5,
+          } 
+        };
         break;
       case 'linear':
-        newMask = { ...common, feather: 0.5, geometry: { startX: width * 0.25, startY: height / 2, endX: width * 0.75, endY: height / 2 } };
+        newMask = { 
+          ...common, 
+          parameters: { 
+            startX: width * 0.25, 
+            startY: height / 2, 
+            endX: width * 0.75, 
+            endY: height / 2,
+            feather: 0.5,
+          } 
+        };
         break;
       case 'brush':
       case 'color':
       case 'luminance':
       case 'ai-subject':
-        newMask = { ...common, geometry: {} }; // Placeholder for more complex geometry
+        newMask = { ...common, parameters: {} }; // Placeholder for more complex parameters
         break;
       default:
         return;

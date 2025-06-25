@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::f32::consts::PI;
 
 pub use crate::gpu_processing::{get_or_init_gpu_context, process_and_get_dynamic_image};
-use crate::{AppState};
+use crate::{AppState, mask_generation::MaskDefinition};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageMetadata {
@@ -136,38 +136,30 @@ pub struct GlobalAdjustments {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
-pub struct Mask {
-    mask_type: u32,
-    invert: u32,
-    feather: f32,
-    rotation: f32,
-    center_x: f32,
-    center_y: f32,
-    radius_x: f32,
-    radius_y: f32,
-    start_x: f32,
-    start_y: f32,
-    end_x: f32,
-    end_y: f32,
-    exposure: f32,
-    contrast: f32,
-    highlights: f32,
-    shadows: f32,
-    whites: f32,
-    blacks: f32,
-    saturation: f32,
-    temperature: f32,
-    tint: f32,
-    vibrance: f32,
+pub struct MaskAdjustmentUniform {
+    pub exposure: f32,
+    pub contrast: f32,
+    pub highlights: f32,
+    pub shadows: f32,
+    pub whites: f32,
+    pub blacks: f32,
+    pub saturation: f32,
+    pub temperature: f32,
+    pub tint: f32,
+    pub vibrance: f32,
+    pub invert: u32,
     _pad1: f32,
     _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
+    _pad5: f32,
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct AllAdjustments {
     pub global: GlobalAdjustments,
-    pub masks: [Mask; 16],
+    pub mask_adjustments: [MaskAdjustmentUniform; 16],
     pub mask_count: u32,
     pub tile_offset_x: u32,
     pub tile_offset_y: u32,
@@ -253,65 +245,38 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
     }
 }
 
-pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value, unscaled_crop_offset: (f32, f32), scale: f32) -> AllAdjustments {
+pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value) -> AllAdjustments {
     let global = get_global_adjustments_from_json(js_adjustments);
-    let mut masks = [Mask::default(); 16];
+    let mut mask_adjustments = [MaskAdjustmentUniform::default(); 16];
     let mut mask_count = 0;
 
-    if let Some(js_masks) = js_adjustments.get("masks").and_then(|m| m.as_array()) {
-        for (i, js_mask) in js_masks.iter().enumerate().take(16) {
-            let adj = &js_mask["adjustments"];
-            let geo = &js_mask["geometry"];
-            let mask_type_str = js_mask["type"].as_str().unwrap_or("");
+    let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_else(Vec::new);
 
-            let mask_type = match mask_type_str {
-                "radial" => 1,
-                "linear" => 2,
-                _ => 0,
-            };
-
-            let center_x = (geo["x"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.0) * scale;
-            let center_y = (geo["y"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.1) * scale;
-            let start_x = (geo["startX"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.0) * scale;
-            let start_y = (geo["startY"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.1) * scale;
-            let end_x = (geo["endX"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.0) * scale;
-            let end_y = (geo["endY"].as_f64().unwrap_or(0.0) as f32 - unscaled_crop_offset.1) * scale;
-            
-            let radius_x = geo["radiusX"].as_f64().unwrap_or(0.0) as f32 * scale;
-            let radius_y = geo["radiusY"].as_f64().unwrap_or(0.0) as f32 * scale;
-
-            masks[i] = Mask {
-                mask_type,
-                invert: if js_mask["invert"].as_bool().unwrap_or(false) { 1 } else { 0 },
-                feather: js_mask["feather"].as_f64().unwrap_or(0.5) as f32,
-                rotation: js_mask["rotation"].as_f64().unwrap_or(0.0) as f32,
-                center_x,
-                center_y,
-                radius_x,
-                radius_y,
-                start_x,
-                start_y,
-                end_x,
-                end_y,
-                exposure: adj["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
-                contrast: adj["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-                highlights: adj["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-                shadows: adj["shadows"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-                whites: adj["whites"].as_f64().unwrap_or(0.0) as f32 / 300.0,
-                blacks: adj["blacks"].as_f64().unwrap_or(0.0) as f32 / 300.0,
-                saturation: adj["saturation"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-                temperature: adj["temperature"].as_f64().unwrap_or(0.0) as f32 / 250.0,
-                tint: adj["tint"].as_f64().unwrap_or(0.0) as f32 / 250.0,
-                vibrance: adj["vibrance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-                _pad1: 0.0, _pad2: 0.0,
-            };
-            mask_count += 1;
-        }
+    for (i, mask_def) in mask_definitions.iter().filter(|m| m.visible).enumerate().take(16) {
+        let adj = &mask_def.adjustments;
+        mask_adjustments[i] = MaskAdjustmentUniform {
+            invert: if mask_def.invert { 1 } else { 0 },
+            exposure: adj["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+            contrast: adj["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+            highlights: adj["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+            shadows: adj["shadows"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+            whites: adj["whites"].as_f64().unwrap_or(0.0) as f32 / 300.0,
+            blacks: adj["blacks"].as_f64().unwrap_or(0.0) as f32 / 300.0,
+            saturation: adj["saturation"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+            temperature: adj["temperature"].as_f64().unwrap_or(0.0) as f32 / 250.0,
+            tint: adj["tint"].as_f64().unwrap_or(0.0) as f32 / 250.0,
+            vibrance: adj["vibrance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+            _pad1: 0.0, _pad2: 0.0, _pad3: 0.0,
+            _pad4: 0.0, _pad5: 0.0,
+        };
+        mask_count += 1;
     }
 
     AllAdjustments {
         global,
-        masks,
+        mask_adjustments,
         mask_count,
         tile_offset_x: 0,
         tile_offset_y: 0,

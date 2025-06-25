@@ -127,6 +127,7 @@ const FullScreenViewer = memo(({ url, isLoading, onClose }) => {
   );
 });
 
+// UPDATED: This component now reads from `mask.parameters` and updates it.
 const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskMouseEnter, onMaskMouseLeave, adjustments }) => {
   const shapeRef = useRef();
   const trRef = useRef();
@@ -149,23 +150,28 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     const scaleY = node.scaleY();
     node.scaleX(1);
     node.scaleY(1);
+    
     onUpdate(mask.id, {
-      geometry: {
-        ...mask.geometry,
-        x: (node.x() / scale) + cropX,
-        y: (node.y() / scale) + cropY,
+      parameters: {
+        ...mask.parameters,
+        centerX: (node.x() / scale) + cropX,
+        centerY: (node.y() / scale) + cropY,
         radiusX: (node.radiusX() * scaleX) / scale,
         radiusY: (node.radiusY() * scaleY) / scale,
+        rotation: node.rotation(),
       },
-      rotation: node.rotation(),
     });
-  }, [mask.id, mask.geometry, onUpdate, scale, cropX, cropY]);
+  }, [mask.id, mask.parameters, onUpdate, scale, cropX, cropY]);
 
   const handleDragEnd = useCallback((e) => {
     onUpdate(mask.id, {
-      geometry: { ...mask.geometry, x: (e.target.x() / scale) + cropX, y: (e.target.y() / scale) + cropY },
+      parameters: { 
+        ...mask.parameters, 
+        centerX: (e.target.x() / scale) + cropX, 
+        centerY: (e.target.y() / scale) + cropY 
+      },
     });
-  }, [mask.id, mask.geometry, onUpdate, scale, cropX, cropY]);
+  }, [mask.id, mask.parameters, onUpdate, scale, cropX, cropY]);
 
   if (!mask.visible) {
     return null;
@@ -176,8 +182,6 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     onTap: onSelect,
     onMouseEnter: onMaskMouseEnter,
     onMouseLeave: onMaskMouseLeave,
-    onDragEnd: handleDragEnd,
-    onTransformEnd: handleTransformEnd,
     draggable: true,
     stroke: isSelected ? '#0ea5e9' : 'white',
     strokeWidth: isSelected ? 2 : 1,
@@ -186,15 +190,18 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   };
 
   if (mask.type === 'radial') {
+    const { centerX, centerY, radiusX, radiusY, rotation } = mask.parameters;
     return (
       <>
         <Ellipse
           ref={shapeRef}
-          x={(mask.geometry.x - cropX) * scale}
-          y={(mask.geometry.y - cropY) * scale}
-          radiusX={mask.geometry.radiusX * scale}
-          radiusY={mask.geometry.radiusY * scale}
-          rotation={mask.rotation}
+          x={(centerX - cropX) * scale}
+          y={(centerY - cropY) * scale}
+          radiusX={radiusX * scale}
+          radiusY={radiusY * scale}
+          rotation={rotation}
+          onDragEnd={handleDragEnd}
+          onTransformEnd={handleTransformEnd}
           {...commonProps}
         />
         {isSelected && (
@@ -205,13 +212,13 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   }
 
   if (mask.type === 'linear') {
-    const { startX, startY, endX, endY } = mask.geometry;
+    const { startX, startY, endX, endY, rotation } = mask.parameters;
     return (
       <Line
-        points={[startX * scale, startY * scale, endX * scale, endY * scale]}
-        rotation={mask.rotation}
+        points={[(startX - cropX) * scale, (startY - cropY) * scale, (endX - cropX) * scale, (endY - cropY) * scale]}
+        rotation={rotation}
         {...commonProps}
-        draggable={false}
+        draggable={false} // Dragging logic for linear would be more complex (start/end points)
       />
     );
   }
@@ -452,7 +459,7 @@ export default function Editor({
     if (showOriginal) {
       setShowOriginal(false);
     }
-  }, [finalPreviewUrl]);
+  }, [finalPreviewUrl, setShowOriginal]);
 
   const isCropping = renderedRightPanel === 'crop';
   const isMasking = renderedRightPanel === 'masks';

@@ -9,7 +9,7 @@ use std::thread;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::jpeg::JpegEncoder;
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Luma};
 use rayon::prelude::*;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
@@ -17,6 +17,7 @@ use tauri::{Emitter, Manager};
 use crate::image_processing::{
     apply_crop, get_all_adjustments_from_json, GpuContext, ImageMetadata, Crop, apply_rotation,
 };
+use crate::mask_generation::{MaskDefinition, generate_mask_bitmap};
 use crate::raw_processing;
 use crate::{gpu_processing, AppState};
 
@@ -214,11 +215,21 @@ fn generate_thumbnail_data(
             };
 
             let cropped_preview = apply_crop(rotated_image, &scaled_crop_json);
+            let (preview_w, preview_h) = cropped_preview.dimensions();
             
             let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
-            let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments, unscaled_crop_offset, scale_for_gpu);
+            
+            let mask_definitions: Vec<MaskDefinition> = meta.adjustments.get("masks")
+                .and_then(|m| serde_json::from_value(m.clone()).ok())
+                .unwrap_or_else(Vec::new);
 
-            if let Ok(processed_image) = gpu_processing::process_and_get_dynamic_image(context, &cropped_preview, gpu_adjustments) {
+            let mask_bitmaps: Vec<ImageBuffer<Luma<u8>, Vec<u8>>> = mask_definitions.iter()
+                .filter_map(|def| generate_mask_bitmap(def, preview_w, preview_h, scale_for_gpu, (unscaled_crop_offset.0 * scale_for_gpu, unscaled_crop_offset.1 * scale_for_gpu)))
+                .collect();
+
+            let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments);
+
+            if let Ok(processed_image) = gpu_processing::process_and_get_dynamic_image(context, &cropped_preview, gpu_adjustments, &mask_bitmaps) {
                 return Ok(processed_image);
             } else {
                 return Ok(cropped_preview);

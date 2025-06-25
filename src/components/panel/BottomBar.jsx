@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check, Save } from 'lucide-react';
 import clsx from 'clsx';
 import Filmstrip from './Filmstrip';
@@ -30,6 +29,8 @@ export default function BottomBar({
   onRate,
   onCopy,
   onPaste,
+  isCopied,
+  isPasted,
   isPasteDisabled,
   zoom,
   onZoomChange,
@@ -54,31 +55,6 @@ export default function BottomBar({
   filmstripHeight,
   isResizing,
 }) {
-  const [isCopied, setIsCopied] = useState(false);
-  const [isPasted, setIsPasted] = useState(false);
-
-  const handleCopyClick = () => {
-    onCopy();
-    setIsCopied(true);
-  };
-
-  const handlePasteClick = () => {
-    onPaste();
-    setIsPasted(true);
-  };
-
-  useEffect(() => {
-    if (!isCopied) return;
-    const timer = setTimeout(() => setIsCopied(false), 1000);
-    return () => clearTimeout(timer);
-  }, [isCopied]);
-
-  useEffect(() => {
-    if (!isPasted) return;
-    const timer = setTimeout(() => setIsPasted(false), 1000);
-    return () => clearTimeout(timer);
-  }, [isPasted]);
-
   return (
     <div className="flex-shrink-0 bg-bg-secondary rounded-lg flex flex-col">
       {!isLibraryView && (
@@ -113,7 +89,7 @@ export default function BottomBar({
           <div className="h-5 w-px bg-surface"></div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCopyClick}
+              onClick={onCopy}
               title="Copy Settings"
               className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors"
             >
@@ -125,7 +101,7 @@ export default function BottomBar({
             </button>
 
             <button
-              onClick={handlePasteClick}
+              onClick={onPaste}
               title="Paste Settings"
               disabled={isPasteDisabled}
               className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors disabled:text-bg-primary disabled:hover:bg-transparent disabled:cursor-not-allowed"

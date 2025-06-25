@@ -68,6 +68,17 @@ export const INITIAL_ADJUSTMENTS = {
   masks: [],
 };
 
+export const COPYABLE_ADJUSTMENT_KEYS = [
+  'exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks',
+  'saturation', 'temperature', 'tint', 'vibrance',
+  'sharpness', 'lumaNoiseReduction', 'colorNoiseReduction',
+  'clarity', 'dehaze', 'structure',
+  'vignetteAmount', 'vignetteMidpoint', 'vignetteRoundness', 'vignetteFeather',
+  'grainAmount',
+  'hsl',
+  'curves',
+];
+
 const useHistoryState = (initialState) => {
   const [history, setHistory] = useState([initialState]);
   const [index, setIndex] = useState(0);
@@ -174,7 +185,6 @@ function App() {
 
   const [activeRightPanel, setActiveRightPanel] = useState('adjustments');
   const [activeMaskId, setActiveMaskId] = useState(null);
-  const [copiedAdjustments, setCopiedAdjustments] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [renderedRightPanel, setRenderedRightPanel] = useState(activeRightPanel);
   const [collapsibleSectionsState, setCollapsibleSectionsState] = useState({
@@ -192,6 +202,10 @@ function App() {
   const [bottomPanelHeight, setBottomPanelHeight] = useState(144);
   const [isResizing, setIsResizing] = useState(false);
 
+  const [copiedAdjustments, setCopiedAdjustments] = useState(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isPasted, setIsPasted] = useState(false);
+
   const { showContextMenu } = useContextMenu();
 
   const imagePathList = useMemo(() => imageList.map(f => f.path), [imageList]);
@@ -200,6 +214,18 @@ function App() {
   const loaderTimeoutRef = useRef(null);
   const folderTreeTimeoutRef = useRef(null);
   const transformWrapperRef = useRef(null);
+
+  useEffect(() => {
+    if (!isCopied) return;
+    const timer = setTimeout(() => setIsCopied(false), 1000);
+    return () => clearTimeout(timer);
+  }, [isCopied]);
+
+  useEffect(() => {
+    if (!isPasted) return;
+    const timer = setTimeout(() => setIsPasted(false), 1000);
+    return () => clearTimeout(timer);
+  }, [isPasted]);
 
   const debouncedSetHistory = useCallback(debounce((newAdjustments) => {
     setHistoryAdjustments(newAdjustments);
@@ -771,34 +797,44 @@ function App() {
     }
   };
 
-  const handleCopyAdjustments = () => {
+  const handleCopyAdjustments = useCallback(() => {
     const sourceAdjustments = selectedImage ? adjustments : libraryActiveAdjustments;
-    const { crop, masks, aspectRatio, ...rest } = sourceAdjustments;
-    setCopiedAdjustments(rest);
-  };
+    
+    const adjustmentsToCopy = {};
+    for (const key of COPYABLE_ADJUSTMENT_KEYS) {
+      if (sourceAdjustments.hasOwnProperty(key)) {
+        adjustmentsToCopy[key] = sourceAdjustments[key];
+      }
+    }
 
-  const handlePasteAdjustments = () => {
+    setCopiedAdjustments(adjustmentsToCopy);
+    setIsCopied(true);
+  }, [selectedImage, adjustments, libraryActiveAdjustments]);
+
+  const handlePasteAdjustments = useCallback(() => {
     if (!copiedAdjustments) return;
 
-    const adjustmentsToPaste = { ...copiedAdjustments };
+    const pathsToUpdate = multiSelectedPaths.length > 0 
+      ? multiSelectedPaths 
+      : (selectedImage ? [selectedImage.path] : []);
 
-    if (selectedImage && multiSelectedPaths.length <= 1) {
+    if (pathsToUpdate.length === 0) return;
+
+    if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
       setAdjustments(prev => ({
         ...prev,
-        ...adjustmentsToPaste,
+        ...copiedAdjustments,
       }));
     }
 
-    const pathsToUpdate = multiSelectedPaths.length > 0 ? multiSelectedPaths : (selectedImage ? [selectedImage.path] : []);
-
-    if (pathsToUpdate.length > 0) {
-      invoke('apply_adjustments_to_paths', { paths: pathsToUpdate, adjustments: adjustmentsToPaste })
-        .catch(err => {
-          console.error("Failed to paste adjustments to multiple images:", err);
-          setError(`Failed to paste adjustments: ${err}`);
-        });
-    }
-  };
+    invoke('apply_adjustments_to_paths', { paths: pathsToUpdate, adjustments: copiedAdjustments })
+      .catch(err => {
+        console.error("Failed to paste adjustments to multiple images:", err);
+        setError(`Failed to paste adjustments: ${err}`);
+      });
+    
+    setIsPasted(true);
+  }, [copiedAdjustments, multiSelectedPaths, selectedImage, setAdjustments]);
 
   const handleRate = useCallback((newRating) => {
     const pathsToRate = multiSelectedPaths.length > 0 
@@ -980,13 +1016,21 @@ const handleZoomChange = useCallback((newZoomValue) => {
           try {
             const sourcePath = finalSelection[0];
             const metadata = await invoke('load_metadata', { path: sourcePath });
-            if (metadata.adjustments && !metadata.adjustments.is_null) {
-              const { crop, masks, aspectRatio, ...rest } = metadata.adjustments;
-              setCopiedAdjustments(rest);
-            } else {
-              const { rating, crop, masks, aspectRatio, ...rest } = INITIAL_ADJUSTMENTS;
-              setCopiedAdjustments(rest);
+            
+            const sourceAdjustments = (metadata.adjustments && !metadata.adjustments.is_null)
+              ? { ...INITIAL_ADJUSTMENTS, ...metadata.adjustments }
+              : INITIAL_ADJUSTMENTS;
+
+            const adjustmentsToCopy = {};
+            for (const key of COPYABLE_ADJUSTMENT_KEYS) {
+              if (sourceAdjustments.hasOwnProperty(key)) {
+                adjustmentsToCopy[key] = sourceAdjustments[key];
+              }
             }
+            
+            setCopiedAdjustments(adjustmentsToCopy);
+            setIsCopied(true);
+
           } catch (err) {
             console.error("Failed to load metadata for copy:", err);
             setError(`Failed to copy adjustments: ${err}`);
@@ -997,17 +1041,7 @@ const handleZoomChange = useCallback((newZoomValue) => {
         label: pasteLabel,
         icon: ClipboardPaste,
         disabled: copiedAdjustments === null,
-        onClick: () => {
-          if (!copiedAdjustments || finalSelection.length === 0) return;
-          if (selectedImage && finalSelection.includes(selectedImage.path)) {
-            setAdjustments(prev => ({ ...prev, ...copiedAdjustments }));
-          }
-          invoke('apply_adjustments_to_paths', { paths: finalSelection, adjustments: copiedAdjustments })
-            .catch(err => {
-              console.error("Failed to paste adjustments:", err);
-              setError(`Failed to paste adjustments: ${err}`);
-            });
-        },
+        onClick: handlePasteAdjustments,
       },
       { type: 'separator' },
       {
@@ -1130,6 +1164,8 @@ const handleZoomChange = useCallback((newZoomValue) => {
               onRate={handleRate}
               onCopy={handleCopyAdjustments}
               onPaste={handlePasteAdjustments}
+              isCopied={isCopied}
+              isPasted={isPasted}
               isPasteDisabled={copiedAdjustments === null}
               zoom={zoom}
               onZoomChange={handleZoomChange}
@@ -1264,6 +1300,8 @@ const handleZoomChange = useCallback((newZoomValue) => {
             onRate={handleRate}
             onCopy={handleCopyAdjustments}
             onPaste={handlePasteAdjustments}
+            isCopied={isCopied}
+            isPasted={isPasted}
             isPasteDisabled={copiedAdjustments === null || multiSelectedPaths.length === 0}
             onReset={handleResetAdjustments}
             isResetDisabled={multiSelectedPaths.length === 0}

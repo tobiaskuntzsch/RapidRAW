@@ -1,5 +1,4 @@
 use image::{GrayImage, Luma};
-use imageproc::drawing::{draw_filled_ellipse_mut};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::f32::consts::PI;
@@ -67,6 +66,12 @@ struct BrushLine {
     tool: String,
     brush_size: f32,
     points: Vec<Point>,
+    #[serde(default = "default_brush_feather")]
+    feather: f32,
+}
+
+fn default_brush_feather() -> f32 {
+    0.5 // Default feather of 50%
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -74,6 +79,63 @@ struct BrushLine {
 struct BrushMaskParameters {
     #[serde(default)]
     lines: Vec<BrushLine>,
+}
+
+fn draw_feathered_ellipse_mut(
+    mask: &mut GrayImage,
+    center: (i32, i32),
+    radius: f32,
+    feather: f32,
+    color_value: u8,
+    is_eraser: bool,
+) {
+    if radius <= 0.0 {
+        return;
+    }
+
+    let (cx, cy) = center;
+    let feather_amount = feather.clamp(0.0, 1.0);
+    let inner_radius = radius * (1.0 - feather_amount);
+
+    let top = (cy as f32 - radius).ceil() as i32;
+    let bottom = (cy as f32 + radius).floor() as i32;
+    let left = (cx as f32 - radius).ceil() as i32;
+    let right = (cx as f32 + radius).floor() as i32;
+
+    for y in top..=bottom {
+        for x in left..=right {
+            if x < 0 || x >= mask.width() as i32 || y < 0 || y >= mask.height() as i32 {
+                continue;
+            }
+
+            let dx = x as f32 - cx as f32;
+            let dy = y as f32 - cy as f32;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist <= radius {
+                let intensity = if dist <= inner_radius {
+                    1.0
+                } else {
+                    // Linear falloff
+                    1.0 - (dist - inner_radius) / (radius - inner_radius).max(0.01)
+                };
+                
+                let final_value = (intensity * color_value as f32) as u8;
+
+                let current_pixel = mask.get_pixel_mut(x as u32, y as u32);
+                
+                if is_eraser {
+                    // For eraser, subtract the intensity value from the current pixel value.
+                    current_pixel[0] = current_pixel[0].saturating_sub(final_value);
+                } else {
+                    // For brush, take the maximum of the current and new value.
+                    if final_value > current_pixel[0] {
+                        current_pixel[0] = final_value;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn generate_radial_bitmap(
@@ -185,8 +247,10 @@ fn generate_brush_bitmap(
     for line in &params.lines {
         if line.points.is_empty() { continue; }
 
-        let color = if line.tool == "eraser" { Luma([0u8]) } else { Luma([255u8]) };
+        let is_eraser = line.tool == "eraser";
+        let color_value = 255u8;
         let radius = (line.brush_size * scale / 2.0).max(0.0);
+        let feather = line.feather.clamp(0.0, 1.0);
 
         if line.points.len() > 1 {
             for points_pair in line.points.windows(2) {
@@ -199,25 +263,26 @@ fn generate_brush_bitmap(
                 let y2_f = (p2.y as f32 - crop_offset.1) * scale;
 
                 let dist = ((x2_f - x1_f).powi(2) + (y2_f - y1_f).powi(2)).sqrt();
-                let steps = (dist / (radius.min(1.0).max(0.5))).ceil() as i32;
+                let step_size = (radius * (1.0 - feather) / 2.0).max(1.0);
+                let steps = (dist / step_size).ceil() as i32;
                 
                 if steps > 1 {
-                    for i in 0..steps {
-                        let t = i as f32 / (steps - 1) as f32;
+                    for i in 0..=steps {
+                        let t = i as f32 / steps as f32;
                         let interp_x = (x1_f + t * (x2_f - x1_f)) as i32;
                         let interp_y = (y1_f + t * (y2_f - y1_f)) as i32;
-                        draw_filled_ellipse_mut(&mut mask, (interp_x, interp_y), radius as i32, radius as i32, color);
+                        draw_feathered_ellipse_mut(&mut mask, (interp_x, interp_y), radius, feather, color_value, is_eraser);
                     }
                 } else {
-                    draw_filled_ellipse_mut(&mut mask, (x1_f as i32, y1_f as i32), radius as i32, radius as i32, color);
-                    draw_filled_ellipse_mut(&mut mask, (x2_f as i32, y2_f as i32), radius as i32, radius as i32, color);
+                    draw_feathered_ellipse_mut(&mut mask, (x1_f as i32, y1_f as i32), radius, feather, color_value, is_eraser);
+                    draw_feathered_ellipse_mut(&mut mask, (x2_f as i32, y2_f as i32), radius, feather, color_value, is_eraser);
                 }
             }
         } else {
             let p1 = &line.points[0];
             let x1 = ((p1.x as f32 - crop_offset.0) * scale) as i32;
             let y1 = ((p1.y as f32 - crop_offset.1) * scale) as i32;
-            draw_filled_ellipse_mut(&mut mask, (x1, y1), radius as i32, radius as i32, color);
+            draw_feathered_ellipse_mut(&mut mask, (x1, y1), radius, feather, color_value, is_eraser);
         }
     }
     mask

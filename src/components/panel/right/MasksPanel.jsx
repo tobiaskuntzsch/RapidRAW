@@ -30,14 +30,26 @@ const BrushTools = ({ settings, setSettings }) => (
       onChange={(e) => setSettings(s => ({ ...s, size: Number(e.target.value) }))}
       className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
     />
+    <div className="flex items-center justify-between">
+      <label className="text-sm font-medium text-text-primary">Brush Feather</label>
+      <span className="text-sm text-text-primary">{settings.feather.toFixed(0)}%</span>
+    </div>
+    <input
+      type="range"
+      min="0"
+      max="100"
+      value={settings.feather}
+      onChange={(e) => setSettings(s => ({ ...s, feather: Number(e.target.value) }))}
+      className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
+    />
     <div className="grid grid-cols-2 gap-2">
-      <button 
+      <button
         onClick={() => setSettings(s => ({ ...s, tool: 'brush' }))}
         className={`p-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${settings.tool === 'brush' ? 'text-white bg-surface' : 'bg-surface text-text-secondary hover:bg-card-active'}`}
       >
         Brush
       </button>
-      <button 
+      <button
         onClick={() => setSettings(s => ({ ...s, tool: 'eraser' }))}
         className={`p-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${settings.tool === 'eraser' ? 'text-white bg-surface' : 'bg-surface text-text-secondary hover:bg-card-active'}`}
       >
@@ -47,9 +59,9 @@ const BrushTools = ({ settings, setSettings }) => (
   </div>
 );
 
-export default function MasksPanel({ 
+export default function MasksPanel({
   adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId,
-  brushSettings, setBrushSettings // New props
+  brushSettings, setBrushSettings
 }) {
   const [editingMaskId, setEditingMaskId] = useState(null);
 
@@ -69,29 +81,29 @@ export default function MasksPanel({
 
     switch (type) {
       case 'radial':
-        newMask = { 
-          ...common, 
-          parameters: { 
-            centerX: width / 2, 
-            centerY: height / 2, 
-            radiusX: width / 4, 
+        newMask = {
+          ...common,
+          parameters: {
+            centerX: width / 2,
+            centerY: height / 2,
+            radiusX: width / 4,
             radiusY: width / 4,
             rotation: 0,
             feather: 0.5,
-          } 
+          }
         };
         break;
       case 'linear':
-        newMask = { 
-          ...common, 
-          parameters: { 
-            startX: width * 0.25, 
-            startY: height / 2, 
-            endX: width * 0.75, 
+        newMask = {
+          ...common,
+          parameters: {
+            startX: width * 0.25,
+            startY: height / 2,
+            endX: width * 0.75,
             endY: height / 2,
             feather: 0.5,
             range: 50,
-          } 
+          }
         };
         break;
       case 'brush':
@@ -149,6 +161,15 @@ export default function MasksPanel({
     }));
   };
 
+  const updateMaskParameters = (maskId, newParams) => {
+    setAdjustments(prev => ({
+      ...prev,
+      masks: (prev.masks || []).map(mask =>
+        mask.id === maskId ? { ...mask, parameters: { ...mask.parameters, ...newParams } } : mask
+      ),
+    }));
+  };
+
   const resetCurrentMaskAdjustments = () => {
     if (!editingMaskId) return;
     updateMaskAdjustments(editingMaskId, { ...INITIAL_MASK_ADJUSTMENTS });
@@ -172,6 +193,23 @@ export default function MasksPanel({
         </div>
         {editingMask.type === 'brush' && brushSettings && setBrushSettings && (
           <BrushTools settings={brushSettings} setSettings={setBrushSettings} />
+        )}
+        {editingMask.type === 'radial' && (
+          <div className="p-4 space-y-4 border-b border-surface">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-text-primary">Feather</label>
+              <span className="text-sm text-text-primary">{(editingMask.parameters.feather * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={editingMask.parameters.feather}
+              onChange={(e) => updateMaskParameters(editingMask.id, { feather: parseFloat(e.target.value) })}
+              className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
+            />
+          </div>
         )}
         <MaskControls
           maskAdjustments={editingMask.adjustments}

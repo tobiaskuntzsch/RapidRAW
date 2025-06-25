@@ -198,7 +198,7 @@ function App() {
   const [isCopied, setIsCopied] = useState(false);
   const [isPasted, setIsPasted] = useState(false);
 
-  const [brushSettings, setBrushSettings] = useState({ size: 50, tool: 'brush' });
+  const [brushSettings, setBrushSettings] = useState({ size: 50, feather: 50, tool: 'brush' });
 
   const { showContextMenu } = useContextMenu();
 

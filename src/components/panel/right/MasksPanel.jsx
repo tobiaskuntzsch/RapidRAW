@@ -16,7 +16,41 @@ const MASK_TYPES = [
   { id: 'luminance', name: 'Luminance', icon: Sun, type: 'luminance' },
 ];
 
-export default function MasksPanel({ adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId }) {
+const BrushTools = ({ settings, setSettings }) => (
+  <div className="p-4 space-y-4 border-b border-surface">
+    <div className="flex items-center justify-between">
+      <label className="text-sm font-medium text-text-primary">Brush Size</label>
+      <span className="text-sm text-text-primary">{settings.size.toFixed(0)}px</span>
+    </div>
+    <input
+      type="range"
+      min="1"
+      max="200"
+      value={settings.size}
+      onChange={(e) => setSettings(s => ({ ...s, size: Number(e.target.value) }))}
+      className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
+    />
+    <div className="grid grid-cols-2 gap-2">
+      <button 
+        onClick={() => setSettings(s => ({ ...s, tool: 'brush' }))}
+        className={`p-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${settings.tool === 'brush' ? 'text-white bg-surface' : 'bg-surface text-text-secondary hover:bg-card-active'}`}
+      >
+        Brush
+      </button>
+      <button 
+        onClick={() => setSettings(s => ({ ...s, tool: 'eraser' }))}
+        className={`p-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${settings.tool === 'eraser' ? 'text-white bg-surface' : 'bg-surface text-text-secondary hover:bg-card-active'}`}
+      >
+        Eraser
+      </button>
+    </div>
+  </div>
+);
+
+export default function MasksPanel({ 
+  adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId,
+  brushSettings, setBrushSettings // New props
+}) {
   const [editingMaskId, setEditingMaskId] = useState(null);
 
   const masks = adjustments.masks || [];
@@ -33,8 +67,6 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
       adjustments: { ...INITIAL_MASK_ADJUSTMENTS },
     };
 
-    // UPDATED: Create masks with a 'parameters' object instead of 'geometry'.
-    // The coordinates are relative to the full, uncropped image.
     switch (type) {
       case 'radial':
         newMask = { 
@@ -58,10 +90,13 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
             endX: width * 0.75, 
             endY: height / 2,
             feather: 0.5,
+            range: 50,
           } 
         };
         break;
       case 'brush':
+        newMask = { ...common, parameters: { lines: [] } };
+        break;
       case 'color':
       case 'luminance':
       case 'ai-subject':
@@ -135,6 +170,9 @@ export default function MasksPanel({ adjustments, setAdjustments, selectedImage,
             <RotateCcw size={18} />
           </button>
         </div>
+        {editingMask.type === 'brush' && brushSettings && setBrushSettings && (
+          <BrushTools settings={brushSettings} setSettings={setBrushSettings} />
+        )}
         <MaskControls
           maskAdjustments={editingMask.adjustments}
           setMaskAdjustments={(newAdjustments) => updateMaskAdjustments(editingMask.id, newAdjustments)}

@@ -1,40 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function AddPresetModal({ isOpen, onClose, onSave }) {
   const [name, setName] = useState('');
+  const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      requestAnimationFrame(() => setShow(true));
+      setIsMounted(true);
+      const timer = setTimeout(() => setShow(true), 10);
+      return () => clearTimeout(timer);
     } else {
       setShow(false);
+      const timer = setTimeout(() => {
+        setIsMounted(false);
+        setName('');
+      }, 300);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      setName('');
-    }
-  }, [isOpen]);
-
-  if (!isOpen) {
-    return null;
-  }
-
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (name.trim()) {
       onSave(name.trim());
+      onClose();
     }
-  };
+  }, [name, onSave, onClose]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       handleSave();
     } else if (e.key === 'Escape') {
       onClose();
     }
-  };
+  }, [handleSave, onClose]);
+
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <div
@@ -45,6 +48,8 @@ export default function AddPresetModal({ isOpen, onClose, onSave }) {
         ${show ? 'opacity-100' : 'opacity-0'}
       `}
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         className={`

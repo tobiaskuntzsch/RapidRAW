@@ -1,6 +1,5 @@
 use image::{GrayImage, Luma};
-use imageproc::drawing::{draw_filled_ellipse_mut, draw_line_segment_mut};
-use imageproc::filter::gaussian_blur_f32;
+use imageproc::drawing::{draw_filled_ellipse_mut};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::f32::consts::PI;
@@ -54,6 +53,27 @@ impl Default for LinearMaskParameters {
             range: default_range(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BrushLine {
+    tool: String,
+    brush_size: f32,
+    points: Vec<Point>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct BrushMaskParameters {
+    #[serde(default)]
+    lines: Vec<BrushLine>,
 }
 
 fn generate_radial_bitmap(
@@ -152,6 +172,57 @@ fn generate_linear_bitmap(
     mask
 }
 
+fn generate_brush_bitmap(
+    params_value: &Value,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+) -> GrayImage {
+    let params: BrushMaskParameters = serde_json::from_value(params_value.clone()).unwrap_or_default();
+    let mut mask = GrayImage::new(width, height);
+
+    for line in &params.lines {
+        if line.points.is_empty() { continue; }
+
+        let color = if line.tool == "eraser" { Luma([0u8]) } else { Luma([255u8]) };
+        let radius = (line.brush_size * scale / 2.0).max(0.0);
+
+        if line.points.len() > 1 {
+            for points_pair in line.points.windows(2) {
+                let p1 = &points_pair[0];
+                let p2 = &points_pair[1];
+
+                let x1_f = (p1.x as f32 - crop_offset.0) * scale;
+                let y1_f = (p1.y as f32 - crop_offset.1) * scale;
+                let x2_f = (p2.x as f32 - crop_offset.0) * scale;
+                let y2_f = (p2.y as f32 - crop_offset.1) * scale;
+
+                let dist = ((x2_f - x1_f).powi(2) + (y2_f - y1_f).powi(2)).sqrt();
+                let steps = (dist / (radius.min(1.0).max(0.5))).ceil() as i32;
+                
+                if steps > 1 {
+                    for i in 0..steps {
+                        let t = i as f32 / (steps - 1) as f32;
+                        let interp_x = (x1_f + t * (x2_f - x1_f)) as i32;
+                        let interp_y = (y1_f + t * (y2_f - y1_f)) as i32;
+                        draw_filled_ellipse_mut(&mut mask, (interp_x, interp_y), radius as i32, radius as i32, color);
+                    }
+                } else {
+                    draw_filled_ellipse_mut(&mut mask, (x1_f as i32, y1_f as i32), radius as i32, radius as i32, color);
+                    draw_filled_ellipse_mut(&mut mask, (x2_f as i32, y2_f as i32), radius as i32, radius as i32, color);
+                }
+            }
+        } else {
+            let p1 = &line.points[0];
+            let x1 = ((p1.x as f32 - crop_offset.0) * scale) as i32;
+            let y1 = ((p1.y as f32 - crop_offset.1) * scale) as i32;
+            draw_filled_ellipse_mut(&mut mask, (x1, y1), radius as i32, radius as i32, color);
+        }
+    }
+    mask
+}
+
 pub fn generate_mask_bitmap(
     mask_def: &MaskDefinition,
     width: u32,
@@ -166,6 +237,7 @@ pub fn generate_mask_bitmap(
     let mut base_mask = match mask_def.mask_type.as_str() {
         "radial" => Some(generate_radial_bitmap(&mask_def.parameters, width, height, scale, crop_offset)),
         "linear" => Some(generate_linear_bitmap(&mask_def.parameters, width, height, scale, crop_offset)),
+        "brush" => Some(generate_brush_bitmap(&mask_def.parameters, width, height, scale, crop_offset)),
         _ => None,
     };
 

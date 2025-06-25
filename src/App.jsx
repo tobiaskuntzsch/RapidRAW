@@ -198,6 +198,8 @@ function App() {
   const [isCopied, setIsCopied] = useState(false);
   const [isPasted, setIsPasted] = useState(false);
 
+  const [brushSettings, setBrushSettings] = useState({ size: 50, tool: 'brush' });
+
   const { showContextMenu } = useContextMenu();
 
   const imagePathList = useMemo(() => imageList.map(f => f.path), [imageList]);
@@ -1149,6 +1151,7 @@ const handleZoomChange = useCallback((newZoomValue) => {
               onRedo={redo}
               canUndo={canUndo}
               canRedo={canRedo}
+              brushSettings={brushSettings}
             />
             <Resizer onMouseDown={createResizeHandler(setBottomPanelHeight, bottomPanelHeight)} direction="horizontal" />
             <BottomBar
@@ -1214,6 +1217,8 @@ const handleZoomChange = useCallback((newZoomValue) => {
                     selectedImage={selectedImage}
                     onSelectMask={setActiveMaskId}
                     activeMaskId={activeMaskId}
+                    brushSettings={brushSettings}
+                    setBrushSettings={setBrushSettings}
                   />
                 )}
                 {renderedRightPanel === 'presets' && (

@@ -1,44 +1,44 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function RenamePresetModal({ isOpen, onClose, onSave, currentName }) {
   const [name, setName] = useState('');
+  const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      requestAnimationFrame(() => setShow(true));
+      setName(currentName || '');
+      setIsMounted(true);
+      const timer = setTimeout(() => setShow(true), 10);
+      return () => clearTimeout(timer);
     } else {
       setShow(false);
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setName(currentName || '');
-    } else {
-      setName('');
+      const timer = setTimeout(() => {
+        setIsMounted(false);
+        setName('');
+      }, 300);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, currentName]);
 
-  if (!isOpen) {
-    return null;
-  }
-
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (name.trim() && name.trim() !== currentName) {
       onSave(name.trim());
-    } else {
-      onClose();
     }
-  };
+    onClose();
+  }, [name, currentName, onSave, onClose]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       handleSave();
     } else if (e.key === 'Escape') {
       onClose();
     }
-  };
+  }, [handleSave, onClose]);
+
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <div
@@ -49,6 +49,8 @@ export default function RenamePresetModal({ isOpen, onClose, onSave, currentName
         ${show ? 'opacity-100' : 'opacity-0'}
       `}
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         className={`

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Button from '../ui/Button';
 
 export default function ConfirmModal({
@@ -11,28 +11,37 @@ export default function ConfirmModal({
   cancelText = 'Cancel',
   confirmVariant = 'primary',
 }) {
+  const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      requestAnimationFrame(() => setShow(true));
+      setIsMounted(true);
+      const timer = setTimeout(() => {
+        setShow(true);
+      }, 10);
+      return () => clearTimeout(timer);
     } else {
       setShow(false);
+      const timer = setTimeout(() => {
+        setIsMounted(false);
+      }, 300);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     onConfirm();
     onClose();
-  };
+  }, [onConfirm, onClose]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       handleConfirm();
     } else if (e.key === 'Escape') {
       onClose();
     }
-  };
+  }, [handleConfirm, onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -41,10 +50,9 @@ export default function ConfirmModal({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onConfirm, onClose, handleConfirm]);
+  }, [isOpen, handleKeyDown]);
 
-
-  if (!isOpen) {
+  if (!isMounted) {
     return null;
   }
 

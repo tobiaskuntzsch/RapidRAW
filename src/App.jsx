@@ -47,6 +47,8 @@ export const INITIAL_ADJUSTMENTS = {
   vignetteRoundness: 0,
   vignetteFeather: 50,
   grainAmount: 0,
+  grainSize: 25,
+  grainRoughness: 50,
   // HSL
   hsl: {
     reds: { hue: 0, saturation: 0, luminance: 0 }, oranges: { hue: 0, saturation: 0, luminance: 0 },
@@ -74,10 +76,22 @@ export const COPYABLE_ADJUSTMENT_KEYS = [
   'sharpness', 'lumaNoiseReduction', 'colorNoiseReduction',
   'clarity', 'dehaze', 'structure',
   'vignetteAmount', 'vignetteMidpoint', 'vignetteRoundness', 'vignetteFeather',
-  'grainAmount',
+  'grainAmount', 'grainSize', 'grainRoughness',
   'hsl',
   'curves',
 ];
+
+export const ADJUSTMENT_SECTIONS = {
+  basic: ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
+  curves: ['curves'],
+  color: ['saturation', 'temperature', 'tint', 'vibrance', 'hsl'],
+  details: ['sharpness', 'lumaNoiseReduction', 'colorNoiseReduction'],
+  effects: [
+    'clarity', 'dehaze', 'structure',
+    'vignetteAmount', 'vignetteMidpoint', 'vignetteRoundness', 'vignetteFeather',
+    'grainAmount', 'grainSize', 'grainRoughness'
+  ],
+};
 
 const useHistoryState = (initialState) => {
   const [history, setHistory] = useState([initialState]);
@@ -168,7 +182,6 @@ function App() {
   const [histogram, setHistogram] = useState(null);
   const [isFilmstripVisible, setIsFilmstripVisible] = useState(true);
   const [isFolderTreeVisible, setIsFolderTreeVisible] = useState(true);
-  const [loadingTimeout, setLoadingTimeout] = useState(null);
   const [isAdjusting, setIsAdjusting] = useState(false);
 
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -195,6 +208,7 @@ function App() {
   const [isResizing, setIsResizing] = useState(false);
 
   const [copiedAdjustments, setCopiedAdjustments] = useState(null);
+  const [copiedSectionAdjustments, setCopiedSectionAdjustments] = useState(null);
   const [copiedMask, setCopiedMask] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isPasted, setIsPasted] = useState(false);
@@ -207,7 +221,6 @@ function App() {
   const { thumbnails } = useThumbnails(imagePathList);
 
   const loaderTimeoutRef = useRef(null);
-  const folderTreeTimeoutRef = useRef(null);
   const transformWrapperRef = useRef(null);
 
   useEffect(() => {
@@ -332,34 +345,28 @@ function App() {
 
   const handleSelectSubfolder = useCallback(async (path, isNewRoot = false) => {
     setIsViewLoading(true);
-    if (loadingTimeout) clearTimeout(loadingTimeout);
 
     try {
       setCurrentFolderPath(path);
-      const promises = [invoke('list_images_in_dir', { path })];
+      const imageListPromise = invoke('list_images_in_dir', { path });
 
       if (isNewRoot) {
         setIsTreeLoading(true);
         setFolderTree(null);
-
         handleSettingsChange({ ...appSettings, last_root_path: path });
 
-        const timeoutId = setTimeout(() => {
+        try {
+          const treeData = await invoke('get_folder_tree', { path });
+          setFolderTree(treeData);
+        } catch (err) {
+          console.error("Failed to load folder tree:", err);
+          setError(`Failed to load folder tree: ${err}. Some sub-folders might be inaccessible.`);
+        } finally {
           setIsTreeLoading(false);
-          setError('Folder tree loading timed out. Please try again.');
-        }, 10000);
-
-        setLoadingTimeout(timeoutId);
-        folderTreeTimeoutRef.current = timeoutId;
-
-        invoke('get_folder_tree', { path }).catch(err => {
-          clearTimeout(timeoutId);
-          setIsTreeLoading(false);
-          setError(`Failed to load folder tree: ${err}`);
-        });
+        }
       }
 
-      const [files] = await Promise.all(promises);
+      const [files] = await Promise.all([imageListPromise]);
       setImageList(files);
       setImageRatings({});
       setMultiSelectedPaths([]);
@@ -371,15 +378,14 @@ function App() {
         setUncroppedAdjustedPreviewUrl(null);
         setHistogram(null);
       }
-    } catch (err)
-    {
+    } catch (err) {
       console.error("Failed to load folder contents:", err);
       setError("Failed to load images from the selected folder.");
       setIsTreeLoading(false);
     } finally {
       setIsViewLoading(false);
     }
-  }, [appSettings, handleSettingsChange, loadingTimeout, selectedImage]);
+  }, [appSettings, handleSettingsChange, selectedImage]);
 
   const handleLibraryRefresh = useCallback(() => {
     if (currentFolderPath) {
@@ -441,22 +447,6 @@ function App() {
           }
         }
       }),
-      listen('folder-tree-update', (event) => {
-        if (isEffectActive) {
-          setFolderTree(event.payload);
-          setIsTreeLoading(false);
-          if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
-          if (loadingTimeout) clearTimeout(loadingTimeout);
-        }
-      }),
-      listen('folder-tree-error', (event) => {
-        if (isEffectActive) {
-          setError(`Failed to load folder tree: ${event.payload}`);
-          setIsTreeLoading(false);
-          if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
-          if (loadingTimeout) clearTimeout(loadingTimeout);
-        }
-      }),
       listen('export-failed', (event) => {
         if (isEffectActive) setError(`Export failed: ${event.payload}`);
       }),
@@ -469,9 +459,8 @@ function App() {
       isEffectActive = false;
       listeners.forEach(unlistenPromise => unlistenPromise.then(unlisten => unlisten()));
       if (loaderTimeoutRef.current) clearTimeout(loaderTimeoutRef.current);
-      if (folderTreeTimeoutRef.current) clearTimeout(folderTreeTimeoutRef.current);
     };
-  }, [loadingTimeout]);
+  }, []);
 
   useEffect(() => {
     if (libraryActivePath) {
@@ -1201,6 +1190,8 @@ const handleZoomChange = useCallback((newZoomValue) => {
                     histogram={histogram}
                     collapsibleState={collapsibleSectionsState}
                     setCollapsibleState={setCollapsibleSectionsState}
+                    copiedSectionAdjustments={copiedSectionAdjustments}
+                    setCopiedSectionAdjustments={setCopiedSectionAdjustments}
                   />
                 )}
                 {renderedRightPanel === 'metadata' && <MetadataPanel selectedImage={selectedImage} />}

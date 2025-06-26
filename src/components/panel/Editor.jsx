@@ -24,7 +24,7 @@ function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
 export default function Editor({
   selectedImage, finalPreviewUrl, uncroppedAdjustedPreviewUrl,
   showOriginal, setShowOriginal, isAdjusting, onBackToLibrary, isLoading, isFullScreen,
-  isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel, renderedRightPanel,
+  isFullScreenLoading, fullScreenUrl, onToggleFullScreen, activeRightPanel,
   adjustments, setAdjustments, activeMaskId, onSelectMask,
   transformWrapperRef, onZoomed, onContextMenu,
   onUndo, onRedo, canUndo, canRedo,
@@ -47,8 +47,12 @@ export default function Editor({
     }
   }, [finalPreviewUrl, setShowOriginal]);
 
-  const isCropping = renderedRightPanel === 'crop';
-  const isMasking = renderedRightPanel === 'masks';
+  // --- MODIFIED LINES ---
+  // Use `activeRightPanel` to determine if a tool is active.
+  // This ensures that when the panel is closed (activeRightPanel is null),
+  // the tools are deactivated immediately, hiding crop handles and mask overlays.
+  const isCropping = activeRightPanel === 'crop';
+  const isMasking = activeRightPanel === 'masks';
   
   const hasDisplayableImage = finalPreviewUrl || selectedImage.originalUrl || selectedImage.thumbnailUrl;
   const showSpinner = isLoading && !hasDisplayableImage;

@@ -2,7 +2,6 @@ import Slider from '../ui/Slider';
 
 export default function BasicAdjustments({ adjustments, setAdjustments }) {
   const handleAdjustmentChange = (key, value) => {
-    // The value from the input is a string, so we parse it.
     const numericValue = parseInt(value, 10);
     setAdjustments(prev => ({ ...prev, [key]: numericValue }));
   };

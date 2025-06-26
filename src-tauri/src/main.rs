@@ -33,13 +33,6 @@ use crate::raw_processing::DemosaicAlgorithm;
 use crate::mask_generation::{MaskDefinition, generate_mask_bitmap};
 
 #[derive(Clone)]
-pub struct PreviewCache {
-    crop_value: Value,
-    rotation_value: Value,
-    processed_image: DynamicImage,
-}
-
-#[derive(Clone)]
 pub struct LoadedImage {
     image: DynamicImage,
     full_width: u32,
@@ -50,7 +43,6 @@ pub struct AppState {
     original_image: Mutex<Option<LoadedImage>>,
     raw_file_bytes: Mutex<Option<Vec<u8>>>,
     gpu_context: Mutex<Option<GpuContext>>,
-    preview_cache: Mutex<Option<PreviewCache>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -177,8 +169,6 @@ async fn load_image(path: String, state: tauri::State<'_, AppState>) -> Result<L
         full_height: orig_height,
     });
     
-    *state.preview_cache.lock().unwrap() = None;
-
     let sidecar_path = get_sidecar_path(&path);
     let metadata = if sidecar_path.exists() {
         let file_content = std::fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
@@ -205,7 +195,6 @@ fn apply_adjustments(
 ) -> Result<(), String> {
     let context = get_or_init_gpu_context(&state)?;
     let adjustments_clone = js_adjustments.clone();
-    *state.preview_cache.lock().unwrap() = None;
     let loaded_image = state.original_image.lock().unwrap().clone().ok_or("No original image loaded")?;
     
     thread::spawn(move || {
@@ -948,7 +937,6 @@ fn main() {
             original_image: Mutex::new(None),
             raw_file_bytes: Mutex::new(None),
             gpu_context: Mutex::new(None),
-            preview_cache: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             show_in_finder,
@@ -970,7 +958,7 @@ fn main() {
             save_presets,
             generate_preset_preview,
             generate_uncropped_preview,
-            generate_mask_overlay, // <-- ADDED
+            generate_mask_overlay,
             load_settings,
             save_settings,
             reset_adjustments_for_paths,

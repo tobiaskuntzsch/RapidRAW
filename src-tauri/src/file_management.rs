@@ -76,18 +76,23 @@ pub fn list_images_in_dir(path: String) -> Result<Vec<ImageFile>, String> {
 }
 
 #[derive(Serialize, Debug)]
-struct FolderNode {
-    name: String,
-    path: String,
-    children: Vec<FolderNode>,
+pub struct FolderNode {
+    pub name: String,
+    pub path: String,
+    pub children: Vec<FolderNode>,
 }
 
 fn scan_dir_recursive(path: &Path) -> Result<Vec<FolderNode>, std::io::Error> {
     let mut children = Vec::new();
+    
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
-        Err(e) => return Err(e),
+        Err(e) => {
+            eprintln!("Could not scan directory '{}': {}", path.display(), e);
+            return Ok(Vec::new());
+        }
     };
+
     for entry in entries.filter_map(std::result::Result::ok) {
         let current_path = entry.path();
         let is_hidden = current_path
@@ -131,21 +136,12 @@ fn get_folder_tree_sync(path: String) -> Result<FolderNode, String> {
 }
 
 #[tauri::command]
-pub fn get_folder_tree(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    let app_handle_clone = app_handle.clone();
-    thread::spawn(move || match get_folder_tree_sync(path) {
-        Ok(tree) => {
-            if let Err(e) = app_handle_clone.emit("folder-tree-update", &tree) {
-                eprintln!("Failed to emit folder-tree-update: {}", e);
-            }
-        }
-        Err(e) => {
-            if let Err(emit_err) = app_handle_clone.emit("folder-tree-error", &e) {
-                eprintln!("Failed to emit folder-tree-error: {}", emit_err);
-            }
-        }
-    });
-    Ok(())
+pub async fn get_folder_tree(path: String) -> Result<FolderNode, String> {
+    match tauri::async_runtime::spawn_blocking(move || get_folder_tree_sync(path)).await {
+        Ok(Ok(folder_node)) => Ok(folder_node),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(format!("Failed to execute folder tree task: {}", e)),
+    }
 }
 
 pub fn get_sidecar_path(image_path: &str) -> PathBuf {

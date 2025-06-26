@@ -13,6 +13,19 @@ const resolutions = [
   { value: 3840, label: '3840px' },
 ];
 
+const KeybindItem = ({ keys, description }) => (
+  <div className="flex justify-between items-center py-2">
+    <span className="text-text-secondary">{description}</span>
+    <div className="flex items-center gap-1">
+      {keys.map((key, index) => (
+        <kbd key={index} className="px-2 py-1 text-xs font-sans font-semibold text-text-primary bg-bg-primary border border-border-color rounded-md">
+          {key}
+        </kbd>
+      ))}
+    </div>
+  </div>
+);
+
 export default function SettingsPanel({ onBack, appSettings, onSettingsChange, rootPath, onLibraryRefresh }) {
   const [isClearing, setIsClearing] = useState(false);
   const [clearMessage, setClearMessage] = useState('');
@@ -168,6 +181,36 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
                 {cacheClearMessage && (
                   <p className="text-sm text-accent mt-3">{cacheClearMessage}</p>
                 )}
+              </div>
+            </div>
+          </div>
+
+          {/* Keyboard Shortcuts */}
+          <div className="p-6 bg-surface rounded-xl shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-primary">Keyboard Shortcuts</h2>
+            <div className="space-y-1 text-sm divide-y divide-border-color">
+              <div>
+                <h3 className="text-lg font-semibold pt-3 pb-2 text-primary">General</h3>
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'C']} description="Copy selected adjustments" />
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'V']} description="Paste copied adjustments" />
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'Shift', '+', 'C']} description="Copy selected file(s)" />
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'Shift', '+', 'V']} description="Paste file(s) to current folder" />
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'A']} description="Select all images" />
+                <KeybindItem keys={['Delete']} description="Delete selected file(s)" />
+                <KeybindItem keys={['0-5']} description="Set rating for selected image(s)" />
+                <KeybindItem keys={['←', '→']} description="Navigate between images" />
+              </div>
+              <div className="pt-2">
+                <h3 className="text-lg font-semibold pt-3 pb-2 text-primary">Editor</h3>
+                <KeybindItem keys={['Esc']} description="Exit editor / fullscreen" />
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'Z']} description="Undo adjustment" />
+                <KeybindItem keys={['Ctrl/Cmd', '+', 'Y']} description="Redo adjustment" />
+                <KeybindItem keys={['F']} description="Toggle fullscreen" />
+                <KeybindItem keys={['B']} description="Show original (before/after)" />
+                <KeybindItem keys={['R']} description="Toggle Crop panel" />
+                <KeybindItem keys={['M']} description="Toggle Masks panel" />
+                <KeybindItem keys={['I']} description="Toggle Metadata panel" />
+                <KeybindItem keys={['E']} description="Toggle Export panel" />
               </div>
             </div>
           </div>

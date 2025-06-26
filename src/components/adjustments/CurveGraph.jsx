@@ -46,9 +46,17 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
     blue: { color: '#4D96FF', data: histogram?.blue },
   };
 
-  const propPoints = adjustments.curves[activeChannel];
+  const propPoints = adjustments?.curves?.[activeChannel];
   const points = localPoints ?? propPoints;
   const { color, data: histogramData } = channelConfig[activeChannel];
+
+  if (!propPoints) {
+    return (
+      <div className="w-full aspect-square bg-surface-secondary p-1 rounded-md flex items-center justify-center text-text-secondary text-xs">
+        Curve data not available.
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (draggingPointIndex === null) {

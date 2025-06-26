@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
 
-function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
+function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false, onContextMenu }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const hasChildren = node.children && node.children.length > 0;
   const isSelected = node.path === selectedPath;
@@ -27,6 +27,7 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
   return (
     <div className="text-sm">
       <div
+        onContextMenu={(e) => onContextMenu(e, node.path)}
         className={`flex items-center gap-2 p-1.5 rounded-md transition-colors ${
           isSelected ? 'bg-card-active' : 'hover:bg-surface'
         }`}
@@ -61,6 +62,7 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
               node={childNode}
               onFolderSelect={onFolderSelect}
               selectedPath={selectedPath}
+              onContextMenu={onContextMenu}
             />
           ))}
         </div>
@@ -69,7 +71,13 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false }) {
   );
 }
 
-export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoading, isVisible, setIsVisible, style, isResizing }) {
+export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoading, isVisible, setIsVisible, style, isResizing, onContextMenu }) {
+  const handleEmptyAreaContextMenu = (e) => {
+    if (e.target === e.currentTarget) {
+      onContextMenu(e, null);
+    }
+  };
+  
   return (
     <div
       className={clsx(
@@ -87,7 +95,10 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
       </button>
 
       {isVisible && (
-        <div className="p-2  flex flex-col overflow-y-auto h-full">
+        <div 
+          className="p-2 flex flex-col overflow-y-auto h-full"
+          onContextMenu={handleEmptyAreaContextMenu}
+        >
           {isLoading && (
             <p className="text-text-secondary text-sm animate-pulse p-2">Loading folder structure...</p>
           )}
@@ -101,6 +112,7 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
                 onFolderSelect={onFolderSelect} 
                 selectedPath={selectedPath} 
                 defaultOpen={true} 
+                onContextMenu={onContextMenu}
               />
               {tree.children.length === 0 && (
                 <div className="text-xs text-text-secondary mt-2 px-2">

@@ -17,49 +17,6 @@ const MASK_TYPES = [
   { id: 'luminance', name: 'Luminance', icon: Sun, type: 'luminance' },
 ];
 
-const BrushTools = ({ settings, setSettings }) => (
-  <div className="p-4 space-y-4 border-b border-surface">
-    <div className="flex items-center justify-between">
-      <label className="text-sm font-medium text-text-primary">Brush Size</label>
-      <span className="text-sm text-text-primary">{settings.size.toFixed(0)}px</span>
-    </div>
-    <input
-      type="range"
-      min="1"
-      max="200"
-      value={settings.size}
-      onChange={(e) => setSettings(s => ({ ...s, size: Number(e.target.value) }))}
-      className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
-    />
-    <div className="flex items-center justify-between">
-      <label className="text-sm font-medium text-text-primary">Brush Feather</label>
-      <span className="text-sm text-text-primary">{settings.feather.toFixed(0)}%</span>
-    </div>
-    <input
-      type="range"
-      min="0"
-      max="100"
-      value={settings.feather}
-      onChange={(e) => setSettings(s => ({ ...s, feather: Number(e.target.value) }))}
-      className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
-    />
-    <div className="grid grid-cols-2 gap-2">
-      <button
-        onClick={() => setSettings(s => ({ ...s, tool: 'brush' }))}
-        className={`p-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${settings.tool === 'brush' ? 'text-white bg-surface' : 'bg-surface text-text-secondary hover:bg-card-active'}`}
-      >
-        Brush
-      </button>
-      <button
-        onClick={() => setSettings(s => ({ ...s, tool: 'eraser' }))}
-        className={`p-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${settings.tool === 'eraser' ? 'text-white bg-surface' : 'bg-surface text-text-secondary hover:bg-card-active'}`}
-      >
-        Eraser
-      </button>
-    </div>
-  </div>
-);
-
 export default function MasksPanel({
   adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId,
   brushSettings, setBrushSettings, copiedMask, setCopiedMask
@@ -103,7 +60,6 @@ export default function MasksPanel({
             startY: height / 2,
             endX: width * 0.75,
             endY: height / 2,
-            feather: 0.5,
             range: 50,
           }
         };
@@ -184,6 +140,10 @@ export default function MasksPanel({
     onSelectMask(null);
   };
 
+  const handleDeselect = () => {
+    onSelectMask(null);
+  };
+
   const updateMask = (maskId, updatedMaskData) => {
     setAdjustments(prev => ({
       ...prev,
@@ -240,19 +200,18 @@ export default function MasksPanel({
           <button onClick={handleBackToList} className="p-2 rounded-full hover:bg-surface transition-colors" title="Back to Mask List">
             <ArrowLeft size={18} />
           </button>
-          <h2 className="text-lg font-bold text-primary text-shadow-shiny truncate capitalize">
+          <h2 className="text-lg font-bold text-primary text-shadow-shiny truncate capitalize p-4">
             Edit {editingMask.type} Mask
           </h2>
           <button onClick={resetCurrentMaskAdjustments} className="p-2 rounded-full hover:bg-surface transition-colors" title="Reset Mask Adjustments">
             <RotateCcw size={18} />
           </button>
         </div>
-        {editingMask.type === 'brush' && brushSettings && setBrushSettings && (
-          <BrushTools settings={brushSettings} setSettings={setBrushSettings} />
-        )}
         <MaskControls
           editingMask={editingMask}
           updateMask={updateMask}
+          brushSettings={brushSettings}
+          setBrushSettings={setBrushSettings}
         />
       </div>
     );
@@ -272,8 +231,12 @@ export default function MasksPanel({
         </button>
       </div>
 
-      <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-6" onContextMenu={handlePanelContextMenu}>
-        <div>
+      <div 
+        className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-6" 
+        onClick={handleDeselect}
+        onContextMenu={handlePanelContextMenu}
+      >
+        <div onClick={(e) => e.stopPropagation()}>
           <p className="text-sm mb-3 font-semibold text-text-primary">Create New Mask</p>
           <div className="grid grid-cols-3 gap-2">
             {MASK_TYPES.map(maskType => (
@@ -291,7 +254,7 @@ export default function MasksPanel({
         </div>
 
         {masks.length > 0 && (
-          <div>
+          <div onClick={(e) => e.stopPropagation()}>
             <p className="text-sm mb-3 font-semibold text-text-primary">Masks ({masks.length})</p>
             <div className="flex flex-col gap-2">
               {masks.map((mask, index) => {
@@ -299,7 +262,8 @@ export default function MasksPanel({
                 return (
                   <div
                     key={mask.id}
-                    onClick={() => handleSelectMaskForEditing(mask.id)}
+                    onClick={() => onSelectMask(mask.id)}
+                    onDoubleClick={() => handleSelectMaskForEditing(mask.id)}
                     onContextMenu={(e) => handleMaskContextMenu(e, mask)}
                     className={`group p-2 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
                       activeMaskId === mask.id ? 'bg-accent/20' : 'bg-surface hover:bg-card-active'
@@ -314,10 +278,17 @@ export default function MasksPanel({
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggleVisibility(mask.id); }}
-                        className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-200"
+                        className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-200"
                         title={mask.visible ? "Hide Mask" : "Show Mask"}
                       >
                         {mask.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteMask(mask.id); }}
+                        className="p-1.5 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-200"
+                        title="Delete Mask"
+                      >
+                        <Trash2 size={16} />
                       </button>
                     </div>
                   </div>

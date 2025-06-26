@@ -30,14 +30,42 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     }
   }, [isSelected]);
 
-  const handleTransformEnd = useCallback(() => {
+  const handleRadialDrag = useCallback((e) => {
+    onUpdate(mask.id, {
+      parameters: { 
+        ...mask.parameters, 
+        centerX: (e.target.x() / scale) + cropX, 
+        centerY: (e.target.y() / scale) + cropY 
+      },
+    });
+  }, [mask.id, mask.parameters, onUpdate, scale, cropX, cropY]);
+
+  const handleRadialTransform = useCallback(() => {
     const node = shapeRef.current;
     if (!node) return;
+
+    onUpdate(mask.id, {
+      parameters: {
+        ...mask.parameters,
+        centerX: (node.x() / scale) + cropX,
+        centerY: (node.y() / scale) + cropY,
+        radiusX: (node.radiusX() * node.scaleX()) / scale,
+        radiusY: (node.radiusY() * node.scaleY()) / scale,
+        rotation: node.rotation(),
+      },
+    });
+  }, [mask.id, mask.parameters, onUpdate, scale, cropX, cropY]);
+
+  const handleRadialTransformEnd = useCallback(() => {
+    const node = shapeRef.current;
+    if (!node) return;
+    
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
+
     node.scaleX(1);
     node.scaleY(1);
-    
+
     onUpdate(mask.id, {
       parameters: {
         ...mask.parameters,
@@ -50,15 +78,53 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
     });
   }, [mask.id, mask.parameters, onUpdate, scale, cropX, cropY]);
 
-  const handleDragEnd = useCallback((e) => {
+  const handleGroupDragEnd = (e) => {
+    const group = e.target;
+    const { startX, startY, endX, endY } = mask.parameters;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const centerX = startX + dx / 2;
+    const centerY = startY + dy / 2;
+    const groupX = (centerX - cropX) * scale;
+    const groupY = (centerY - cropY) * scale;
+    const moveX = group.x() - groupX;
+    const moveY = group.y() - groupY;
     onUpdate(mask.id, {
-      parameters: { 
-        ...mask.parameters, 
-        centerX: (e.target.x() / scale) + cropX, 
-        centerY: (e.target.y() / scale) + cropY 
-      },
+      parameters: {
+        ...mask.parameters,
+        startX: startX + moveX / scale,
+        startY: startY + moveY / scale,
+        endX: endX + moveX / scale,
+        endY: endY + moveY / scale,
+      }
     });
-  }, [mask.id, mask.parameters, onUpdate, scale, cropX, cropY]);
+  };
+
+  const handlePointDrag = (e, point) => {
+    const stage = e.target.getStage();
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+
+    const newX = (pointerPos.x / scale) + cropX;
+    const newY = (pointerPos.y / scale) + cropY;
+
+    const newParams = { ...mask.parameters };
+    if (point === 'start') {
+      newParams.startX = newX;
+      newParams.startY = newY;
+    } else {
+      newParams.endX = newX;
+      newParams.endY = newY;
+    }
+    onUpdate(mask.id, { parameters: newParams });
+  };
+  
+  const handleRangeDrag = (e) => {
+    const newRange = Math.abs(e.target.y() / scale);
+    onUpdate(mask.id, {
+      parameters: { ...mask.parameters, range: newRange }
+    });
+  };
 
   if (!mask.visible) {
     return null;
@@ -83,7 +149,7 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
             key={i}
             points={line.points.flatMap(p => [(p.x - cropX) * scale, (p.y - cropY) * scale])}
             stroke={isSelected ? 'transparent' : 'white'}
-            strokeWidth={2} // Increased unselected width
+            strokeWidth={2}
             dash={[4, 4]}
             opacity={isSelected ? 0 : 0.7}
             hitStrokeWidth={line.brushSize * scale}
@@ -108,9 +174,11 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
           radiusX={radiusX * scale}
           radiusY={radiusY * scale}
           rotation={rotation}
-          onDragEnd={handleDragEnd}
-          onTransformEnd={handleTransformEnd}
           draggable
+          onDragMove={handleRadialDrag}
+          onDragEnd={handleRadialDrag}
+          onTransform={handleRadialTransform}
+          onTransformEnd={handleRadialTransformEnd}
           onMouseEnter={onMaskMouseEnter}
           onMouseLeave={onMaskMouseLeave}
           {...commonProps}
@@ -124,14 +192,12 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
 
   if (mask.type === 'linear') {
     const { startX, startY, endX, endY, range = 50 } = mask.parameters;
-
     const dx = endX - startX;
     const dy = endY - startY;
     const len = Math.sqrt(dx * dx + dy * dy);
     const angle = Math.atan2(dy, dx);
     const centerX = startX + dx / 2;
     const centerY = startY + dy / 2;
-
     const groupX = (centerX - cropX) * scale;
     const groupY = (centerY - cropY) * scale;
     const scaledLen = len * scale;
@@ -139,61 +205,17 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
 
     const lineProps = {
       ...commonProps,
-      strokeWidth: isSelected ? 2.5 : 2, // Increased unselected width
+      strokeWidth: isSelected ? 2.5 : 2,
       dash: [6, 6],
       hitStrokeWidth: 20,
     };
 
-    const handleGroupDragEnd = (e) => {
-      const group = e.target;
-      const moveX = group.x() - groupX;
-      const moveY = group.y() - groupY;
-      onUpdate(mask.id, {
-        parameters: {
-          ...mask.parameters,
-          startX: startX + moveX / scale,
-          startY: startY + moveY / scale,
-          endX: endX + moveX / scale,
-          endY: endY + moveY / scale,
-        }
-      });
-    };
-
-    const handlePointDrag = (e, point) => {
-      const stage = e.target.getStage();
-      const pointerPos = stage.getPointerPosition();
-      if (!pointerPos) return;
-
-      const newX = (pointerPos.x / scale) + cropX;
-      const newY = (pointerPos.y / scale) + cropY;
-
-      const newParams = { ...mask.parameters };
-      if (point === 'start') {
-        newParams.startX = newX;
-        newParams.startY = newY;
-      } else {
-        newParams.endX = newX;
-        newParams.endY = newY;
-      }
-      onUpdate(mask.id, { parameters: newParams });
-    };
-    
-    const handleRangeDrag = (e) => {
-      const newRange = Math.abs(e.target.y() / scale);
-      onUpdate(mask.id, {
-        parameters: { ...mask.parameters, range: newRange }
-      });
-    };
-
     const perpendicularDragBoundFunc = function(pos) {
       const group = this.getParent();
-
       const transform = group.getAbsoluteTransform().copy();
       transform.invert();
-
       const localPos = transform.point(pos);
       const constrainedLocalPos = { x: 0, y: localPos.y };
-
       return group.getAbsoluteTransform().point(constrainedLocalPos);
     };
 
@@ -218,7 +240,6 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
         onTap={onSelect}
       >
         <Line points={[-5000, 0, 5000, 0]} {...lineProps} dash={[2, 3]} />
-
         <Line
           y={-r}
           points={[-scaledLen / 2, 0, scaledLen / 2, 0]}
@@ -230,7 +251,6 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
           onMouseEnter={(e) => { e.target.getStage().container().style.cursor = 'row-resize'; onMaskMouseEnter(); }}
           onMouseLeave={(e) => { e.target.getStage().container().style.cursor = 'move'; onMaskMouseLeave(); }}
         />
-
         <Line
           y={r}
           points={[-scaledLen / 2, 0, scaledLen / 2, 0]}
@@ -242,7 +262,6 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
           onMouseEnter={(e) => { e.target.getStage().container().style.cursor = 'row-resize'; onMaskMouseEnter(); }}
           onMouseLeave={(e) => { e.target.getStage().container().style.cursor = 'move'; onMaskMouseLeave(); }}
         />
-
         {isSelected && (
           <>
             <Circle
@@ -278,7 +297,6 @@ const MaskOverlay = memo(({ mask, scale, onUpdate, isSelected, onSelect, onMaskM
   }
   return null;
 });
-
 
 const ImageCanvas = memo(({
   isCropping, crop, setCrop, handleCropComplete, adjustments, selectedImage,

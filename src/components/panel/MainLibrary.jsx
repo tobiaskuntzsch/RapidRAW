@@ -162,6 +162,7 @@ export default function MainLibrary({
   onImageClick,
   onImageDoubleClick,
   onContextMenu,
+  onEmptyAreaContextMenu,
   multiSelectedPaths,
   activePath,
   rootPath,
@@ -301,13 +302,17 @@ export default function MainLibrary({
 
 
       {imageList.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-text-secondary">
+        <div 
+          className="flex-1 flex items-center justify-center text-text-secondary"
+          onContextMenu={onEmptyAreaContextMenu}
+        >
           <p>No images found in this folder.</p>
         </div>
       ) : (
         <div 
           className="flex-1 overflow-y-auto p-4"
           onClick={onClearSelection}
+          onContextMenu={onEmptyAreaContextMenu}
         >
           <motion.div 
             className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4"

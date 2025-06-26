@@ -6,7 +6,7 @@ import { homeDir } from '@tauri-apps/api/path';
 import debounce from 'lodash.debounce';
 import { centerCrop, makeAspectCrop } from 'react-image-crop';
 import clsx from 'clsx';
-import { Copy, ClipboardPaste, RotateCcw, Star, Trash2, Folder, Edit, Check, X, Undo, Redo } from 'lucide-react';
+import { Copy, ClipboardPaste, RotateCcw, Star, Trash2, Folder, Edit, Check, X, Undo, Redo, FolderPlus } from 'lucide-react';
 import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
@@ -23,6 +23,8 @@ import LibraryExportPanel from './components/panel/right/LibraryExportPanel';
 import MasksPanel from './components/panel/right/MasksPanel';
 import BottomBar from './components/panel/BottomBar';
 import { ContextMenuProvider, useContextMenu } from './context/ContextMenuContext';
+
+const DEBUG = false;
 
 export const INITIAL_MASK_ADJUSTMENTS = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
@@ -208,6 +210,7 @@ function App() {
   const [isResizing, setIsResizing] = useState(false);
 
   const [copiedAdjustments, setCopiedAdjustments] = useState(null);
+  const [copiedFilePaths, setCopiedFilePaths] = useState([]);
   const [copiedSectionAdjustments, setCopiedSectionAdjustments] = useState(null);
   const [copiedMask, setCopiedMask] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -237,13 +240,15 @@ function App() {
 
   const debouncedSetHistory = useCallback(debounce((newAdjustments) => {
     setHistoryAdjustments(newAdjustments);
-  }, 400), [setHistoryAdjustments]);
+  }, 300), [setHistoryAdjustments]);
 
   const setAdjustments = useCallback((value) => {
-    const newAdjustments = typeof value === 'function' ? value(adjustments) : value;
-    setLiveAdjustments(newAdjustments);
-    debouncedSetHistory(newAdjustments);
-  }, [adjustments, debouncedSetHistory]);
+    setLiveAdjustments(prevAdjustments => {
+      const newAdjustments = typeof value === 'function' ? value(prevAdjustments) : value;
+      debouncedSetHistory(newAdjustments);
+      return newAdjustments;
+    });
+  }, [debouncedSetHistory]);
 
   useEffect(() => {
     setLiveAdjustments(historyAdjustments);
@@ -343,6 +348,20 @@ function App() {
       .catch(err => console.error("Failed to save settings:", err));
   }, []);
 
+  const handleRefreshFolderTree = useCallback(async () => {
+    if (!rootPath) return;
+    setIsTreeLoading(true);
+    try {
+      const treeData = await invoke('get_folder_tree', { path: rootPath });
+      setFolderTree(treeData);
+    } catch (err) {
+      console.error("Failed to refresh folder tree:", err);
+      setError(`Failed to refresh folder tree: ${err}.`);
+    } finally {
+      setIsTreeLoading(false);
+    }
+  }, [rootPath]);
+
   const handleSelectSubfolder = useCallback(async (path, isNewRoot = false) => {
     setIsViewLoading(true);
 
@@ -392,6 +411,20 @@ function App() {
       handleSelectSubfolder(currentFolderPath, false);
     }
   }, [currentFolderPath, handleSelectSubfolder]);
+
+  useEffect(() => {
+    const handleGlobalContextMenu = (event) => {
+      if (!DEBUG) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('contextmenu', handleGlobalContextMenu);
+
+    return () => {
+      window.removeEventListener('contextmenu', handleGlobalContextMenu);
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -1097,6 +1130,170 @@ const handleZoomChange = useCallback((newZoomValue) => {
     showContextMenu(event.clientX, event.clientY, options);
   };
 
+  const handleFolderTreeContextMenu = (event, path) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const targetPath = path || rootPath;
+    if (!targetPath) return;
+
+    const isRoot = targetPath === rootPath;
+
+    const options = [
+      {
+        label: 'New Folder...',
+        icon: FolderPlus,
+        onClick: async () => {
+          const folderName = prompt('Enter new folder name:');
+          if (folderName && folderName.trim() !== '') {
+            try {
+              const newPath = `${targetPath}/${folderName.trim()}`;
+              await invoke('create_folder', { path: newPath });
+              handleRefreshFolderTree();
+            } catch (err) {
+              setError(`Failed to create folder: ${err}`);
+            }
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: `Copy ${multiSelectedPaths.length} selected images`,
+        icon: Copy,
+        disabled: multiSelectedPaths.length === 0,
+        onClick: () => {
+          setCopiedFilePaths(multiSelectedPaths);
+          setIsCopied(true);
+        },
+      },
+      {
+        label: 'Paste...',
+        icon: ClipboardPaste,
+        disabled: copiedFilePaths.length === 0,
+        submenu: [
+          {
+            label: `Copy ${copiedFilePaths.length} items here`,
+            onClick: async () => {
+              try {
+                await invoke('copy_files', { sourcePaths: copiedFilePaths, destinationFolder: targetPath });
+                if (targetPath === currentFolderPath) {
+                  handleLibraryRefresh();
+                }
+              } catch (err) {
+                setError(`Failed to copy files: ${err}`);
+              }
+            },
+          },
+          {
+            label: `Move ${copiedFilePaths.length} items here`,
+            onClick: async () => {
+              try {
+                await invoke('move_files', { sourcePaths: copiedFilePaths, destinationFolder: targetPath });
+                setCopiedFilePaths([]);
+                setMultiSelectedPaths([]);
+                handleRefreshFolderTree();
+                handleLibraryRefresh();
+              } catch (err) {
+                setError(`Failed to move files: ${err}`);
+              }
+            },
+          },
+        ],
+      },
+      { type: 'separator' },
+      {
+        label: 'Show in File Explorer',
+        icon: Folder,
+        onClick: () => invoke('show_in_finder', { path: targetPath }).catch(err => setError(`Could not show folder: ${err}`)),
+      },
+      ...(path ? [{
+        label: 'Delete Folder',
+        icon: Trash2,
+        isDestructive: true,
+        disabled: isRoot,
+        submenu: [
+          { label: 'Cancel', icon: X, onClick: () => {} },
+          {
+            label: 'Confirm Delete',
+            icon: Check,
+            isDestructive: true,
+            onClick: async () => {
+              try {
+                await invoke('delete_folder', { path: targetPath });
+                if (currentFolderPath.startsWith(targetPath)) {
+                  await handleSelectSubfolder(rootPath);
+                }
+                handleRefreshFolderTree();
+              } catch (err) {
+                setError(`Failed to delete folder: ${err}`);
+              }
+            },
+          },
+        ],
+      }] : []),
+    ];
+
+    showContextMenu(event.clientX, event.clientY, options);
+  };
+
+  const handleMainLibraryContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const options = [
+      {
+        label: 'New Folder...',
+        icon: FolderPlus,
+        onClick: async () => {
+          const folderName = prompt('Enter new folder name:');
+          if (folderName && folderName.trim() !== '') {
+            try {
+              const newPath = `${currentFolderPath}/${folderName.trim()}`;
+              await invoke('create_folder', { path: newPath });
+              handleRefreshFolderTree();
+            } catch (err) {
+              setError(`Failed to create folder: ${err}`);
+            }
+          }
+        },
+      },
+      {
+        label: 'Paste...',
+        icon: ClipboardPaste,
+        disabled: copiedFilePaths.length === 0,
+        submenu: [
+          {
+            label: `Copy ${copiedFilePaths.length} items here`,
+            onClick: async () => {
+              try {
+                await invoke('copy_files', { sourcePaths: copiedFilePaths, destinationFolder: currentFolderPath });
+                handleLibraryRefresh();
+              } catch (err) {
+                setError(`Failed to copy files: ${err}`);
+              }
+            },
+          },
+          {
+            label: `Move ${copiedFilePaths.length} items here`,
+            onClick: async () => {
+              try {
+                await invoke('move_files', { sourcePaths: copiedFilePaths, destinationFolder: currentFolderPath });
+                setCopiedFilePaths([]);
+                setMultiSelectedPaths([]);
+                handleRefreshFolderTree();
+                handleLibraryRefresh();
+              } catch (err) {
+                setError(`Failed to move files: ${err}`);
+              }
+            },
+          },
+        ],
+      },
+    ];
+
+    showContextMenu(event.clientX, event.clientY, options);
+  };
+
   const renderContent = () => {
     if (selectedImage) {
       return (
@@ -1110,6 +1307,7 @@ const handleZoomChange = useCallback((newZoomValue) => {
             setIsVisible={setIsFolderTreeVisible}
             style={{ width: isFolderTreeVisible ? `${leftPanelWidth}px` : '32px' }}
             isResizing={isResizing}
+            onContextMenu={handleFolderTreeContextMenu}
           />
           <Resizer onMouseDown={createResizeHandler(setLeftPanelWidth, leftPanelWidth)} direction="vertical" />
 
@@ -1257,6 +1455,7 @@ const handleZoomChange = useCallback((newZoomValue) => {
               setIsVisible={setIsFolderTreeVisible}
               style={{ width: isFolderTreeVisible ? `${leftPanelWidth}px` : '32px' }}
               isResizing={isResizing}
+              onContextMenu={handleFolderTreeContextMenu}
             />
             <Resizer onMouseDown={createResizeHandler(setLeftPanelWidth, leftPanelWidth)} direction="vertical" />
           </>
@@ -1267,6 +1466,7 @@ const handleZoomChange = useCallback((newZoomValue) => {
             onImageClick={handleLibraryImageSingleClick}
             onImageDoubleClick={handleImageSelect}
             onContextMenu={handleThumbnailContextMenu}
+            onEmptyAreaContextMenu={handleMainLibraryContextMenu}
             multiSelectedPaths={multiSelectedPaths}
             activePath={libraryActivePath}
             rootPath={rootPath}
@@ -1289,7 +1489,12 @@ const handleZoomChange = useCallback((newZoomValue) => {
             isLibraryView={true}
             rating={libraryActiveAdjustments.rating || 0}
             onRate={handleRate}
-            onCopy={handleCopyAdjustments}
+            onCopy={() => {
+              if (multiSelectedPaths.length > 0) {
+                setCopiedFilePaths(multiSelectedPaths);
+                setIsCopied(true);
+              }
+            }}
             onPaste={handlePasteAdjustments}
             isCopied={isCopied}
             isPasted={isPasted}

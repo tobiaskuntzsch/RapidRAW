@@ -411,3 +411,78 @@ pub fn generate_thumbnails_progressive(
 
     Ok(())
 }
+
+#[tauri::command]
+pub fn create_folder(path: String) -> Result<(), String> {
+    fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_folder(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn copy_files(source_paths: Vec<String>, destination_folder: String) -> Result<(), String> {
+    let dest_path = Path::new(&destination_folder);
+    if !dest_path.is_dir() {
+        return Err(format!("Destination is not a folder: {}", destination_folder));
+    }
+
+    for source_str in source_paths {
+        let source_path = Path::new(&source_str);
+        if let Some(file_name) = source_path.file_name() {
+            let dest_file_path = dest_path.join(file_name);
+            
+            fs::copy(&source_path, &dest_file_path).map_err(|e| e.to_string())?;
+
+            let sidecar_path = get_sidecar_path(&source_str);
+            if sidecar_path.exists() {
+                if let Some(dest_str) = dest_file_path.to_str() {
+                    let dest_sidecar_path = get_sidecar_path(dest_str);
+                    fs::copy(&sidecar_path, &dest_sidecar_path).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_files(source_paths: Vec<String>, destination_folder: String) -> Result<(), String> {
+    let dest_path = Path::new(&destination_folder);
+    if !dest_path.is_dir() {
+        return Err(format!("Destination is not a folder: {}", destination_folder));
+    }
+
+    let mut files_to_delete = Vec::new();
+    let mut sidecars_to_delete = Vec::new();
+
+    for source_str in &source_paths {
+        let source_path = Path::new(source_str);
+        if let Some(file_name) = source_path.file_name() {
+            let dest_file_path = dest_path.join(file_name);
+
+            if dest_file_path.exists() {
+                return Err(format!("File already exists at destination: {}", dest_file_path.display()));
+            }
+
+            fs::copy(&source_path, &dest_file_path).map_err(|e| e.to_string())?;
+            files_to_delete.push(source_path.to_path_buf());
+
+            let sidecar_path = get_sidecar_path(source_str);
+            if sidecar_path.exists() {
+                if let Some(dest_str) = dest_file_path.to_str() {
+                    let dest_sidecar_path = get_sidecar_path(dest_str);
+                    fs::copy(&sidecar_path, &dest_sidecar_path).map_err(|e| e.to_string())?;
+                    sidecars_to_delete.push(sidecar_path);
+                }
+            }
+        }
+    }
+
+    trash::delete_all(&files_to_delete).map_err(|e| e.to_string())?;
+    trash::delete_all(&sidecars_to_delete).map_err(|e| e.to_string())?;
+
+    Ok(())
+}

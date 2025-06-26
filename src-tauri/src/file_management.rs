@@ -84,7 +84,7 @@ pub struct FolderNode {
 
 fn scan_dir_recursive(path: &Path) -> Result<Vec<FolderNode>, std::io::Error> {
     let mut children = Vec::new();
-    
+
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(e) => {
@@ -102,23 +102,23 @@ fn scan_dir_recursive(path: &Path) -> Result<Vec<FolderNode>, std::io::Error> {
 
         if current_path.is_dir() && !is_hidden {
             let sub_children = scan_dir_recursive(&current_path)?;
-            let has_images = list_images_in_dir(current_path.to_string_lossy().into_owned())
-                .map_or(false, |images| !images.is_empty());
-            if !sub_children.is_empty() || has_images {
-                children.push(FolderNode {
-                    name: current_path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned(),
-                    path: current_path.to_string_lossy().into_owned(),
-                    children: sub_children,
-                });
-            }
+            children.push(FolderNode {
+                name: current_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                path: current_path.to_string_lossy().into_owned(),
+                children: sub_children,
+            });
         }
     }
+
+    children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
     Ok(children)
 }
+
 
 fn get_folder_tree_sync(path: String) -> Result<FolderNode, String> {
     let root_path = Path::new(&path);
@@ -182,12 +182,12 @@ fn generate_thumbnail_data(
             const THUMBNAIL_PROCESSING_DIM: u32 = 1280;
             let (full_w, full_h) = original_dims;
 
-            let (processing_base, scale_for_gpu) = 
+            let (processing_base, scale_for_gpu) =
                 if full_w > THUMBNAIL_PROCESSING_DIM || full_h > THUMBNAIL_PROCESSING_DIM {
-                    let base = if is_raw_file(path_str) { 
-                        base_image 
-                    } else { 
-                        base_image.thumbnail(THUMBNAIL_PROCESSING_DIM, THUMBNAIL_PROCESSING_DIM) 
+                    let base = if is_raw_file(path_str) {
+                        base_image
+                    } else {
+                        base_image.thumbnail(THUMBNAIL_PROCESSING_DIM, THUMBNAIL_PROCESSING_DIM)
                     };
                     let scale = if full_w > 0 { base.width() as f32 / full_w as f32 } else { 1.0 };
                     (base, scale)
@@ -212,9 +212,9 @@ fn generate_thumbnail_data(
 
             let cropped_preview = apply_crop(rotated_image, &scaled_crop_json);
             let (preview_w, preview_h) = cropped_preview.dimensions();
-            
+
             let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
-            
+
             let mask_definitions: Vec<MaskDefinition> = meta.adjustments.get("masks")
                 .and_then(|m| serde_json::from_value(m.clone()).ok())
                 .unwrap_or_else(Vec::new);
@@ -414,12 +414,88 @@ pub fn generate_thumbnails_progressive(
 
 #[tauri::command]
 pub fn create_folder(path: String) -> Result<(), String> {
+    let path_obj = Path::new(&path);
+    if let (Some(parent), Some(new_folder_name_os)) = (path_obj.parent(), path_obj.file_name()) {
+        if let Some(new_folder_name) = new_folder_name_os.to_str() {
+            if parent.exists() {
+                for entry in fs::read_dir(parent).map_err(|e| e.to_string())? {
+                    if let Ok(entry) = entry {
+                        if entry.file_name().to_string_lossy().to_lowercase() == new_folder_name.to_lowercase() {
+                            return Err("A folder with that name already exists.".to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
     fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_folder(path: String, new_name: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if !p.is_dir() {
+        return Err("Path is not a directory.".to_string());
+    }
+    if let Some(parent) = p.parent() {
+        for entry in fs::read_dir(parent).map_err(|e| e.to_string())? {
+            if let Ok(entry) = entry {
+                if entry.file_name().to_string_lossy().to_lowercase() == new_name.to_lowercase() {
+                    if entry.path() != p {
+                        return Err("A folder with that name already exists.".to_string());
+                    }
+                }
+            }
+        }
+        let new_path = parent.join(&new_name);
+        fs::rename(p, new_path).map_err(|e| e.to_string())
+    } else {
+        Err("Could not determine parent directory.".to_string())
+    }
 }
 
 #[tauri::command]
 pub fn delete_folder(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn duplicate_file(path: String) -> Result<(), String> {
+    let source_path = Path::new(&path);
+    if !source_path.is_file() {
+        return Err("Source path is not a file.".to_string());
+    }
+
+    let parent = source_path.parent().ok_or("Could not get parent directory")?;
+    let stem = source_path.file_stem().and_then(|s| s.to_str()).ok_or("Could not get file stem")?;
+    let extension = source_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+    let mut counter = 1;
+    let mut dest_path;
+    loop {
+        let new_stem = if counter == 1 {
+            format!("{}_copy", stem)
+        } else {
+            format!("{}_copy_{}", stem, counter - 1)
+        };
+        dest_path = parent.join(format!("{}.{}", new_stem, extension));
+        if !dest_path.exists() {
+            break;
+        }
+        counter += 1;
+    }
+
+    fs::copy(&source_path, &dest_path).map_err(|e| e.to_string())?;
+
+    let sidecar_path = get_sidecar_path(&path);
+    if sidecar_path.exists() {
+        if let Some(dest_str) = dest_path.to_str() {
+            let dest_sidecar_path = get_sidecar_path(dest_str);
+            fs::copy(&sidecar_path, &dest_sidecar_path).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -431,16 +507,24 @@ pub fn copy_files(source_paths: Vec<String>, destination_folder: String) -> Resu
 
     for source_str in source_paths {
         let source_path = Path::new(&source_str);
-        if let Some(file_name) = source_path.file_name() {
-            let dest_file_path = dest_path.join(file_name);
-            
-            fs::copy(&source_path, &dest_file_path).map_err(|e| e.to_string())?;
 
-            let sidecar_path = get_sidecar_path(&source_str);
-            if sidecar_path.exists() {
-                if let Some(dest_str) = dest_file_path.to_str() {
-                    let dest_sidecar_path = get_sidecar_path(dest_str);
-                    fs::copy(&sidecar_path, &dest_sidecar_path).map_err(|e| e.to_string())?;
+        let canon_dest = fs::canonicalize(dest_path).map_err(|e| e.to_string())?;
+        let canon_source_parent = source_path.parent().and_then(|p| fs::canonicalize(p).ok());
+
+        if Some(canon_dest) == canon_source_parent {
+            duplicate_file(source_str.clone())?;
+        } else {
+            if let Some(file_name) = source_path.file_name() {
+                let dest_file_path = dest_path.join(file_name);
+
+                fs::copy(&source_path, &dest_file_path).map_err(|e| e.to_string())?;
+
+                let sidecar_path = get_sidecar_path(&source_str);
+                if sidecar_path.exists() {
+                    if let Some(dest_str) = dest_file_path.to_str() {
+                        let dest_sidecar_path = get_sidecar_path(dest_str);
+                        fs::copy(&sidecar_path, &dest_sidecar_path).map_err(|e| e.to_string())?;
+                    }
                 }
             }
         }

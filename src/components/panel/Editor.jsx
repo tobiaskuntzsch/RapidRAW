@@ -47,10 +47,6 @@ export default function Editor({
     }
   }, [finalPreviewUrl, setShowOriginal]);
 
-  // --- MODIFIED LINES ---
-  // Use `activeRightPanel` to determine if a tool is active.
-  // This ensures that when the panel is closed (activeRightPanel is null),
-  // the tools are deactivated immediately, hiding crop handles and mask overlays.
   const isCropping = activeRightPanel === 'crop';
   const isMasking = activeRightPanel === 'masks';
   

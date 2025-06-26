@@ -36,6 +36,7 @@ function getHistogramPath(data) {
 export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
   const [activeChannel, setActiveChannel] = useState('luma');
   const [draggingPointIndex, setDraggingPointIndex] = useState(null);
+  const [localPoints, setLocalPoints] = useState(null);
   const svgRef = useRef(null);
 
   const channelConfig = {
@@ -45,8 +46,20 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
     blue: { color: '#4D96FF', data: histogram?.blue },
   };
 
-  const points = adjustments.curves[activeChannel];
+  const propPoints = adjustments.curves[activeChannel];
+  const points = localPoints ?? propPoints;
   const { color, data: histogramData } = channelConfig[activeChannel];
+
+  useEffect(() => {
+    if (draggingPointIndex === null) {
+      setLocalPoints(null);
+    }
+  }, [propPoints]);
+
+  useEffect(() => {
+    setLocalPoints(null);
+    setDraggingPointIndex(null);
+  }, [activeChannel]);
 
   const getMousePos = (e) => {
     const svg = svgRef.current;
@@ -59,6 +72,7 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
 
   const handlePointMouseDown = (e, index) => {
     e.preventDefault();
+    setLocalPoints(points);
     setDraggingPointIndex(index);
   };
 
@@ -66,7 +80,7 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
     if (draggingPointIndex === null) return;
     
     let { x, y } = getMousePos(e);
-    
+
     const newPoints = [...points];
     const isEndPoint = draggingPointIndex === 0 || draggingPointIndex === points.length - 1;
 
@@ -79,6 +93,8 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
     }
 
     newPoints[draggingPointIndex] = { x, y };
+
+    setLocalPoints(newPoints);
 
     setAdjustments(prev => ({
       ...prev,
@@ -100,6 +116,7 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
 
     const newPointIndex = newPoints.findIndex(p => p.x === x && p.y === y);
 
+    setLocalPoints(newPoints);
     setAdjustments(prev => ({
       ...prev,
       curves: { ...prev.curves, [activeChannel]: newPoints }
@@ -113,6 +130,8 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
     if (index === 0 || index === points.length - 1) return;
 
     const newPoints = points.filter((_, i) => i !== index);
+
+    setLocalPoints(newPoints);
     setAdjustments(prev => ({
       ...prev,
       curves: { ...prev.curves, [activeChannel]: newPoints }
@@ -121,6 +140,8 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
 
   const handleDoubleClick = () => {
     const defaultPoints = [{ x: 0, y: 0 }, { x: 255, y: 255 }];
+
+    setLocalPoints(defaultPoints);
     setAdjustments(prev => ({
       ...prev,
       curves: { ...prev.curves, [activeChannel]: defaultPoints }
@@ -134,7 +155,7 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingPointIndex, points, activeChannel]);
+  }, [draggingPointIndex, points, activeChannel, setAdjustments]);
 
   return (
     <div className="select-none">

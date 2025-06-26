@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
+import { motion, AnimatePresence } from 'framer-motion';
 
 function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false, onContextMenu }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -22,6 +23,26 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false, onC
 
   const handleNameClick = () => {
     onFolderSelect(node.path);
+  };
+
+  const containerVariants = {
+    closed: { height: 0, opacity: 0, transition: { duration: 0.2, ease: 'easeInOut' } },
+    open: { height: 'auto', opacity: 1, transition: { duration: 0.25, ease: 'easeInOut' } },
+  };
+
+  // MODIFICATION: The 'visible' variant now conditionally applies a delay.
+  const itemVariants = {
+    hidden: { opacity: 0, x: -15 },
+    visible: ({ index, total }) => ({
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.25,
+        // Apply stagger delay only if there are less than 5 items, otherwise fade in all at once.
+        delay: total < 5 ? index * 0.05 : 0,
+      },
+    }),
+    exit: { opacity: 0, x: -15, transition: { duration: 0.2 } },
   };
 
   return (
@@ -54,19 +75,42 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false, onC
         </span>
       </div>
 
-      {hasChildren && isOpen && (
-        <div className="pl-4 border-l border-border-color/20 ml-2 py-1">
-          {node.children.map((childNode) => (
-            <TreeNode
-              key={childNode.path}
-              node={childNode}
-              onFolderSelect={onFolderSelect}
-              selectedPath={selectedPath}
-              onContextMenu={onContextMenu}
-            />
-          ))}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {hasChildren && isOpen && (
+          <motion.div
+            key="children-container"
+            variants={containerVariants}
+            initial="closed"
+            animate="open"
+            exit="closed"
+            className="pl-4 border-l border-border-color/20 ml-2 overflow-hidden"
+          >
+            <div className="py-1">
+              <AnimatePresence>
+                {node.children.map((childNode, index) => (
+                  <motion.div
+                    key={childNode.path}
+                    layout="position"
+                    variants={itemVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    // MODIFICATION: Pass an object to `custom` containing the index and total length.
+                    custom={{ index, total: node.children.length }}
+                  >
+                    <TreeNode
+                      node={childNode}
+                      onFolderSelect={onFolderSelect}
+                      selectedPath={selectedPath}
+                      onContextMenu={onContextMenu}
+                    />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -99,13 +143,7 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
           className="p-2 flex flex-col overflow-y-auto h-full"
           onContextMenu={handleEmptyAreaContextMenu}
         >
-          {isLoading && (
-            <p className="text-text-secondary text-sm animate-pulse p-2">Loading folder structure...</p>
-          )}
-          {!isLoading && !tree && (
-            <p className="text-text-secondary text-sm p-2">Open a folder to see its structure.</p>
-          )}
-          {!isLoading && tree && (
+          {tree ? (
             <>
               <TreeNode 
                 node={tree} 
@@ -120,6 +158,10 @@ export default function FolderTree({ tree, onFolderSelect, selectedPath, isLoadi
                 </div>
               )}
             </>
+          ) : isLoading ? (
+            <p className="text-text-secondary text-sm animate-pulse p-2">Loading folder structure...</p>
+          ) : (
+            <p className="text-text-secondary text-sm p-2">Open a folder to see its structure.</p>
           )}
         </div>
       )}

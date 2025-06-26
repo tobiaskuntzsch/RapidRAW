@@ -198,7 +198,7 @@ export default function MainLibrary({
       );
     }
 
-    const hasLastPath = !!appSettings.last_root_path;
+    const hasLastPath = !!appSettings.lastRootPath;
 
     return (
       <div className="flex-1 flex h-full rounded-lg bg-bg-secondary overflow-hidden shadow-lg">

@@ -3,10 +3,24 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { usePresets } from '../../../hooks/usePresets';
 import { useContextMenu } from '../../../context/ContextMenuContext';
-import { Plus, Loader2, FileUp, FileDown, Edit, Trash2 } from 'lucide-react';
+import { Plus, Loader2, FileUp, FileDown, Edit, Trash2, CopyPlus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import AddPresetModal from '../../modals/AddPresetModal';
 import RenamePresetModal from '../../modals/RenamePresetModal';
 import { INITIAL_ADJUSTMENTS } from '../../../App';
+
+const itemVariants = {
+  hidden: { opacity: 0, x: -15 },
+  visible: i => ({
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.25,
+      delay: i * 0.05,
+    },
+  }),
+  exit: { opacity: 0, x: -15, transition: { duration: 0.2 } },
+};
 
 export default function PresetsPanel({ adjustments, setAdjustments, selectedImage, activePanel }) {
   const { 
@@ -15,6 +29,7 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
     addPreset, 
     deletePreset, 
     renamePreset,
+    duplicatePreset,
     importPresetsFromFile,
     exportPresetsToFile,
   } = usePresets(adjustments);
@@ -144,6 +159,11 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
         },
       },
       {
+        label: 'Duplicate Preset',
+        icon: CopyPlus,
+        onClick: () => duplicatePreset(preset.id),
+      },
+      {
         label: 'Export Preset',
         icon: FileDown,
         onClick: () => handleExportPreset(preset),
@@ -212,27 +232,35 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
           </div>
         ) : (
           <div className="space-y-2">
-            {[...presets].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())).map((preset) => (
-              <div
-                key={preset.id}
-                onClick={() => handleApplyPreset(preset)}
-                onContextMenu={(e) => handleContextMenu(e, preset)}
-                className="flex items-center gap-2 p-2 rounded-lg bg-bg-primary cursor-pointer hover:bg-surface-hover"
-              >
-                <div className="w-20 h-14 bg-bg-tertiary rounded-md flex items-center justify-center flex-shrink-0">
-                  {isGeneratingPreviews && !previews[preset.id] ? (
-                     <Loader2 size={20} className="animate-spin text-text-secondary" />
-                  ) : previews[preset.id] ? (
-                    <img src={previews[preset.id]} alt={`${preset.name} preview`} className="w-full h-full object-cover rounded-md" />
-                  ) : (
-                    <Loader2 size={20} className="animate-spin text-text-secondary" />
-                  )}
-                </div>
-                <div className="flex-grow min-w-0">
-                  <p className="font-medium truncate">{preset.name}</p>
-                </div>
-              </div>
-            ))}
+            <AnimatePresence>
+              {[...presets].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())).map((preset, index) => (
+                <motion.div
+                  key={preset.id}
+                  layout
+                  variants={itemVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={index}
+                  onClick={() => handleApplyPreset(preset)}
+                  onContextMenu={(e) => handleContextMenu(e, preset)}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-bg-primary cursor-pointer hover:bg-surface-hover"
+                >
+                  <div className="w-20 h-14 bg-bg-tertiary rounded-md flex items-center justify-center flex-shrink-0">
+                    {isGeneratingPreviews && !previews[preset.id] ? (
+                       <Loader2 size={20} className="animate-spin text-text-secondary" />
+                    ) : previews[preset.id] ? (
+                      <img src={previews[preset.id]} alt={`${preset.name} preview`} className="w-full h-full object-cover rounded-md" />
+                    ) : (
+                      <Loader2 size={20} className="animate-spin text-text-secondary" />
+                    )}
+                  </div>
+                  <div className="flex-grow min-w-0">
+                    <p className="font-medium truncate">{preset.name}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         )}
       </div>

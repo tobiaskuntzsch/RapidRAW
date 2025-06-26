@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Circle, Waves, Brush, Droplet, Sun, Sparkles,
   Trash2, RotateCcw, ArrowLeft, Eye, EyeOff, Edit, Copy, ClipboardPaste, PlusSquare
@@ -17,12 +18,33 @@ const MASK_TYPES = [
   { id: 'luminance', name: 'Luminance', icon: Sun, type: 'luminance' },
 ];
 
+const itemVariants = {
+  hidden: { opacity: 0, x: -15 },
+  visible: i => ({
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.25,
+      delay: i * 0.05,
+    },
+  }),
+  exit: { opacity: 0, x: -15, transition: { duration: 0.2 } },
+};
+
 export default function MasksPanel({
   adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId,
   brushSettings, setBrushSettings, copiedMask, setCopiedMask
 }) {
   const [editingMaskId, setEditingMaskId] = useState(null);
+  const [deletingMaskId, setDeletingMaskId] = useState(null);
   const { showContextMenu } = useContextMenu();
+
+  const isInitialRender = useRef(true);
+
+  useEffect(() => {
+    isInitialRender.current = false;
+  }, []);
+
 
   const masks = adjustments.masks || [];
 
@@ -82,9 +104,16 @@ export default function MasksPanel({
   };
 
   const handleDeleteMask = (id) => {
-    if (editingMaskId === id) setEditingMaskId(null);
-    if (activeMaskId === id) onSelectMask(null);
-    setAdjustments(prev => ({ ...prev, masks: (prev.masks || []).filter(mask => mask.id !== id) }));
+    if (deletingMaskId) return;
+
+    setDeletingMaskId(id);
+
+    setTimeout(() => {
+      if (editingMaskId === id) setEditingMaskId(null);
+      if (activeMaskId === id) onSelectMask(null);
+      setAdjustments(prev => ({ ...prev, masks: (prev.masks || []).filter(mask => mask.id !== id) }));
+      setDeletingMaskId(null);
+    }, 200);
   };
 
   const handleDuplicateMask = (id) => {
@@ -257,43 +286,53 @@ export default function MasksPanel({
           <div onClick={(e) => e.stopPropagation()}>
             <p className="text-sm mb-3 font-semibold text-text-primary">Masks ({masks.length})</p>
             <div className="flex flex-col gap-2">
-              {masks.map((mask, index) => {
-                const MaskIcon = MASK_TYPES.find(mt => mt.type === mask.type)?.icon || Circle;
-                return (
-                  <div
-                    key={mask.id}
-                    onClick={() => onSelectMask(mask.id)}
-                    onDoubleClick={() => handleSelectMaskForEditing(mask.id)}
-                    onContextMenu={(e) => handleMaskContextMenu(e, mask)}
-                    className={`group p-2 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
-                      activeMaskId === mask.id ? 'bg-accent/20' : 'bg-surface hover:bg-card-active'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <MaskIcon size={16} className="text-text-secondary" />
-                      <span className="font-medium text-sm text-text-primary capitalize">
-                        {mask.name || `${mask.type} ${index + 1}`}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleToggleVisibility(mask.id); }}
-                        className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-200"
-                        title={mask.visible ? "Hide Mask" : "Show Mask"}
-                      >
-                        {mask.visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteMask(mask.id); }}
-                        className="p-1.5 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-200"
-                        title="Delete Mask"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
+              <AnimatePresence>
+                {masks
+                  .filter(mask => mask.id !== deletingMaskId)
+                  .map((mask, index) => {
+                  const MaskIcon = MASK_TYPES.find(mt => mt.type === mask.type)?.icon || Circle;
+                  return (
+                    <motion.div
+                      key={mask.id}
+                      layout
+                      variants={itemVariants}
+                      initial={isInitialRender.current ? "hidden" : false}
+                      animate="visible"
+                      exit="exit"
+                      custom={index}
+                      onClick={() => onSelectMask(mask.id)}
+                      onDoubleClick={() => handleSelectMaskForEditing(mask.id)}
+                      onContextMenu={(e) => handleMaskContextMenu(e, mask)}
+                      className={`group p-2 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
+                        activeMaskId === mask.id ? 'bg-accent/20' : 'bg-surface hover:bg-card-active'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <MaskIcon size={16} className="text-text-secondary" />
+                        <span className="font-medium text-sm text-text-primary capitalize">
+                          {mask.name || `${mask.type} ${index + 1}`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleToggleVisibility(mask.id); }}
+                          className="p-1.5 rounded-full text-text-secondary hover:bg-bg-primary opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-200"
+                          title={mask.visible ? "Hide Mask" : "Show Mask"}
+                        >
+                          {mask.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteMask(mask.id); }}
+                          className="p-1.5 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-200"
+                          title="Delete Mask"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
             </div>
           </div>
         )}

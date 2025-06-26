@@ -53,6 +53,24 @@ export function usePresets(currentAdjustments) {
     savePresetsToBackend(updatedPresets);
   };
 
+  const duplicatePreset = useCallback((presetId) => {
+    const presetToDuplicate = presets.find(p => p.id === presetId);
+    if (!presetToDuplicate) {
+      console.error("Preset to duplicate not found");
+      return;
+    }
+
+    const newPreset = {
+      adjustments: JSON.parse(JSON.stringify(presetToDuplicate.adjustments)),
+      id: crypto.randomUUID(),
+      name: `${presetToDuplicate.name} Copy`,
+    };
+
+    const updatedPresets = [...presets, newPreset];
+    setPresets(updatedPresets);
+    savePresetsToBackend(updatedPresets);
+  }, [presets, savePresetsToBackend]);
+
   const reorderPresets = (result) => {
     if (!result.destination) return;
 
@@ -93,6 +111,7 @@ export function usePresets(currentAdjustments) {
     addPreset,
     deletePreset,
     renamePreset,
+    duplicatePreset,
     reorderPresets,
     importPresetsFromFile,
     exportPresetsToFile,

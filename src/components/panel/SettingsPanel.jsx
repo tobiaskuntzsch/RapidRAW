@@ -29,7 +29,7 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
     confirmVariant: 'primary',
   });
 
-  const effectiveRootPath = rootPath || appSettings?.last_root_path;
+  const effectiveRootPath = rootPath || appSettings?.lastRootPath;
 
   const executeClearSidecars = async () => {
     setIsClearing(true);
@@ -118,8 +118,8 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
                 </label>
                 <Dropdown
                   options={resolutions}
-                  value={appSettings?.editor_preview_resolution || 1920}
-                  onChange={(value) => onSettingsChange({ ...appSettings, editor_preview_resolution: value })}
+                  value={appSettings?.editorPreviewResolution || 1920}
+                  onChange={(value) => onSettingsChange({ ...appSettings, editorPreviewResolution: value })}
                 />
                 <p className="text-xs text-text-secondary mt-2">
                   Higher resolutions provide a sharper preview but may impact performance on less powerful systems.
@@ -175,11 +175,11 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
           {/* Information */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
             <h2 className="text-xl font-semibold mb-2 text-primary">Information</h2>
-            {appSettings?.last_root_path && (
+            {appSettings?.lastRootPath && (
               <div className="mt-4">
                 <h3 className="font-medium text-text-primary">Last Used Folder</h3>
                 <p className="text-sm text-text-secondary bg-bg-primary p-3 rounded-md mt-2 font-mono break-all">
-                  {appSettings.last_root_path}
+                  {appSettings.lastRootPath}
                 </p>
               </div>
             )}

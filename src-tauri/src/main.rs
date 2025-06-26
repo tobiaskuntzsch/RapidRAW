@@ -57,10 +57,19 @@ struct PresetFile {
     presets: Vec<Preset>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SortCriteria {
+    key: String,
+    order: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 struct AppSettings {
     last_root_path: Option<String>,
     editor_preview_resolution: Option<u32>,
+    sort_criteria: Option<SortCriteria>,
 }
 
 #[derive(serde::Serialize)]
@@ -958,6 +967,8 @@ fn main() {
             file_management::delete_folder,
             file_management::copy_files,
             file_management::move_files,
+            file_management::rename_folder,
+            file_management::duplicate_file,
             load_presets,
             save_presets,
             generate_preset_preview,

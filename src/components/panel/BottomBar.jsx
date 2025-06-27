@@ -2,20 +2,29 @@ import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check, S
 import clsx from 'clsx';
 import Filmstrip from './Filmstrip';
 
-const StarRating = ({ rating, onRate }) => {
+const StarRating = ({ rating, onRate, disabled }) => {
   return (
-    <div className="flex items-center gap-1">
+    <div className={clsx("flex items-center gap-1", disabled && "cursor-not-allowed")}>
       {[...Array(5)].map((_, index) => {
         const starValue = index + 1;
         return (
-          <button key={starValue} onClick={() => onRate(starValue === rating ? 0 : starValue)} title={`Rate ${starValue} star${starValue > 1 ? 's' : ''}`}>
+          <button
+            key={starValue}
+            onClick={() => !disabled && onRate(starValue === rating ? 0 : starValue)}
+            title={disabled ? "Select an image to rate" : `Rate ${starValue} star${starValue > 1 ? 's' : ''}`}
+            disabled={disabled}
+            className="disabled:cursor-not-allowed"
+          >
             <Star
               size={18}
-              className={`transition-colors duration-150 ${
-                starValue <= rating
+              className={clsx(
+                'transition-colors duration-150',
+                disabled
+                  ? 'text-bg-primary'
+                  : starValue <= rating
                   ? 'fill-white text-white'
                   : 'text-text-secondary hover:text-text-primary'
-              }`}
+              )}
             />
           </button>
         );
@@ -27,11 +36,13 @@ const StarRating = ({ rating, onRate }) => {
 export default function BottomBar({
   rating,
   onRate,
+  isRatingDisabled,
   onCopy,
   onPaste,
   isCopied,
   isPasted,
   isPasteDisabled,
+  isCopyDisabled,
   zoom,
   onZoomChange,
   minZoom,
@@ -85,13 +96,14 @@ export default function BottomBar({
         !isLibraryView && isFilmstripVisible && "border-t border-surface"
       )}>
         <div className="flex items-center gap-4">
-          <StarRating rating={rating} onRate={onRate} />
+          <StarRating rating={rating} onRate={onRate} disabled={isRatingDisabled} />
           <div className="h-5 w-px bg-surface"></div>
           <div className="flex items-center gap-2">
             <button
               onClick={onCopy}
               title="Copy Settings"
-              className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors"
+              disabled={isCopyDisabled}
+              className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface hover:text-text-primary transition-colors disabled:text-bg-primary disabled:hover:bg-transparent disabled:cursor-not-allowed"
             >
               {isCopied ? (
                 <Check size={18} className="text-green-500 animate-pop-in" />

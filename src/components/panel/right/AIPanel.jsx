@@ -6,7 +6,7 @@ export default function AIPanel({ selectedImage }) {
       </div>
       <div className="flex-grow overflow-y-auto p-4 text-text-secondary">
         {selectedImage ? (
-          <p>AI tools for {selectedImage.path.split(/[\\/]/).pop()}</p>
+          <p>AI tools not yet implemented. Will appear here soon.</p>
         ) : (
           <p>No image selected.</p>
         )}

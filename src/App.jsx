@@ -11,7 +11,7 @@ import TitleBar from './window/TitleBar';
 import MainLibrary from './components/panel/MainLibrary';
 import FolderTree from './components/panel/FolderTree';
 import Editor from './components/panel/Editor';
-import Controls from './components/panel/right/Controls';
+import Controls from './components/panel/right/ControlsPanel';
 import { useThumbnails } from './hooks/useThumbnails';
 import RightPanelSwitcher from './components/panel/right/RightPanelSwitcher';
 import MetadataPanel from './components/panel/right/MetadataPanel';
@@ -944,7 +944,9 @@ function App() {
             <BottomBar
               rating={adjustments.rating || 0}
               onRate={handleRate}
+              isRatingDisabled={!selectedImage}
               onCopy={handleCopyAdjustments}
+              isCopyDisabled={!selectedImage}
               onPaste={handlePasteAdjustments}
               isCopied={isCopied}
               isPasted={isPasted}
@@ -1024,7 +1026,9 @@ function App() {
             isLibraryView={true}
             rating={libraryActiveAdjustments.rating || 0}
             onRate={handleRate}
-            onCopy={() => { if (multiSelectedPaths.length > 0) { setCopiedFilePaths(multiSelectedPaths); setIsCopied(true); } }}
+            isRatingDisabled={multiSelectedPaths.length === 0}
+            onCopy={handleCopyAdjustments}
+            isCopyDisabled={multiSelectedPaths.length !== 1}
             onPaste={handlePasteAdjustments}
             isCopied={isCopied}
             isPasted={isPasted}

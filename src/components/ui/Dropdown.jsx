@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown } from 'lucide-react';
 
 export default function Dropdown({
@@ -9,18 +10,9 @@ export default function Dropdown({
   className = '',
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [show, setShow] = useState(false);
   const dropdownRef = useRef(null);
 
   const selectedOption = options.find(opt => opt.value === value) || null;
-
-  useEffect(() => {
-    if (isOpen) {
-      requestAnimationFrame(() => setShow(true));
-    } else {
-      setShow(false);
-    }
-  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -55,40 +47,43 @@ export default function Dropdown({
         />
       </button>
 
-      <div
-        className={`
-          absolute right-0 mt-2 w-full origin-top-right z-20
-          transform transition-all duration-200 ease-out
-          ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}
-          ${show ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}
-        `}
-      >
-        <div
-          className="bg-surface rounded-lg shadow-xl p-2 max-h-60 overflow-y-auto"
-          role="listbox"
-          aria-orientation="vertical"
-        >
-          {options.map((option) => {
-            const isSelected = value === option.value;
-            return (
-              <button
-                key={option.value}
-                onClick={() => handleSelect(option)}
-                className={`
-                  w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between
-                  transition-colors duration-150
-                  ${isSelected ? 'bg-bg-primary text-text-primary font-semibold' : 'text-text-primary hover:bg-bg-primary'}
-                `}
-                role="option"
-                aria-selected={isSelected}
-              >
-                <span>{option.label}</span>
-                {isSelected && <Check size={16} />}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.1, ease: 'easeOut' }}
+            className="absolute right-0 mt-2 w-full origin-top-right z-20"
+          >
+            <div
+              className="bg-surface/90 backdrop-blur-md rounded-lg shadow-xl p-2 max-h-60 overflow-y-auto"
+              role="listbox"
+              aria-orientation="vertical"
+            >
+              {options.map((option) => {
+                const isSelected = value === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => handleSelect(option)}
+                    className={`
+                      w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between
+                      transition-colors duration-150
+                      ${isSelected ? 'bg-bg-primary text-text-primary font-semibold' : 'text-text-primary hover:bg-bg-primary'}
+                    `}
+                    role="option"
+                    aria-selected={isSelected}
+                  >
+                    <span>{option.label}</span>
+                    {isSelected && <Check size={16} />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

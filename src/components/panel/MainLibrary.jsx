@@ -24,16 +24,7 @@ const sortOptions = [
 
 function SortDropdown({ sortCriteria, setSortCriteria }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [show, setShow] = useState(false);
   const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      requestAnimationFrame(() => setShow(true));
-    } else {
-      setShow(false);
-    }
-  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -64,39 +55,42 @@ function SortDropdown({ sortCriteria, setSortCriteria }) {
         <ArrowUpDown className="w-8 h-8" />
       </Button>
 
-      <div
-        className={`
-          absolute right-0 mt-2 w-56 origin-top-right z-20
-          transform transition-all duration-200 ease-out
-          ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}
-          ${show ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}
-        `}
-      >
-        <div
-          className="bg-surface rounded-lg shadow-xl p-2"
-          role="menu"
-          aria-orientation="vertical"
-        >
-          {sortOptions.map((option) => {
-            const isSelected = sortCriteria.key === option.key && sortCriteria.order === option.order;
-            return (
-              <button
-                key={`${option.key}-${option.order}`}
-                onClick={() => handleSelect(option)}
-                className={`
-                  w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between
-                  transition-colors duration-150
-                  ${isSelected ? 'bg-card-active text-text-primary font-semibold' : 'text-text-primary hover:bg-bg-primary'}
-                `}
-                role="menuitem"
-              >
-                <span>{option.label}</span>
-                {isSelected && <Check size={16} />}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            className="absolute right-0 mt-2 w-56 origin-top-right z-20"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.1, ease: 'easeOut' }}
+          >
+            <div
+              className="bg-surface/90 backdrop-blur-md rounded-lg shadow-xl p-2"
+              role="menu"
+              aria-orientation="vertical"
+            >
+              {sortOptions.map((option) => {
+                const isSelected = sortCriteria.key === option.key && sortCriteria.order === option.order;
+                return (
+                  <button
+                    key={`${option.key}-${option.order}`}
+                    onClick={() => handleSelect(option)}
+                    className={`
+                      w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between
+                      transition-colors duration-150
+                      ${isSelected ? 'bg-card-active text-text-primary font-semibold' : 'text-text-primary hover:bg-bg-primary'}
+                    `}
+                    role="menuitem"
+                  >
+                    <span>{option.label}</span>
+                    {isSelected && <Check size={16} />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

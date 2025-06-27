@@ -4,11 +4,11 @@ import CollapsibleSection from '../../ui/CollapsibleSection';
 import Switch from '../../ui/Switch';
 import Slider from '../../ui/Slider';
 
-import BasicAdjustments from '../../adjustments/BasicAdjustments';
-import CurveGraph from '../../adjustments/CurveGraph';
-import ColorPanel from '../../adjustments/ColorPanel';
-import DetailsPanel from '../../adjustments/DetailsPanel';
-import EffectsPanel from '../../adjustments/EffectsPanel';
+import BasicAdjustments from '../../adjustments/Basic';
+import CurveGraph from '../../adjustments/Curves';
+import ColorPanel from '../../adjustments/Color';
+import DetailsPanel from '../../adjustments/Details';
+import EffectsPanel from '../../adjustments/Effects';
 
 import { INITIAL_MASK_ADJUSTMENTS, ADJUSTMENT_SECTIONS } from '../../../App';
 import { useContextMenu } from '../../../context/ContextMenuContext';

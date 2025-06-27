@@ -77,7 +77,7 @@ export default function Dropdown({
                 className={`
                   w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between
                   transition-colors duration-150
-                  ${isSelected ? 'bg-bg-primary text-white font-semibold' : 'text-text-primary hover:bg-bg-primary'}
+                  ${isSelected ? 'bg-bg-primary text-text-primary font-semibold' : 'text-text-primary hover:bg-bg-primary'}
                 `}
                 role="option"
                 aria-selected={isSelected}

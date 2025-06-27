@@ -72,7 +72,6 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
     }
   };
 
-  // handlePresetClick now uses the derived orientation to maintain the switch-like behavior
   const handlePresetClick = (preset) => {
     let baseRatio = preset.value;
     if (preset.value === 'original') {
@@ -82,7 +81,6 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
     }
 
     let newAspectRatio = baseRatio;
-    // Apply the currently derived orientation to the new preset
     if (baseRatio && baseRatio !== 1 && orientation === 'vertical') {
       newAspectRatio = 1 / baseRatio;
     }
@@ -90,7 +88,6 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
     setAdjustments(prev => ({ ...prev, aspectRatio: newAspectRatio, crop: null }));
   };
 
-  // handleOrientationToggle is now simpler: it just inverts the aspect ratio.
   const handleOrientationToggle = useCallback(() => {
     if (aspectRatio && aspectRatio !== 1) {
       setAdjustments(prev => ({
@@ -101,7 +98,6 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
     }
   }, [aspectRatio, setAdjustments]);
 
-  // handleReset is simpler, no need to reset orientation.
   const handleReset = () => {
     setAdjustments(prev => ({
       ...prev,
@@ -138,7 +134,6 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
             <div>
               <div className="flex justify-between items-center mb-3">
                 <p className="text-sm font-semibold text-text-primary">Aspect Ratio</p>
-                {/* The UI uses the derived 'orientation' variable to show the correct icon */}
                 <button
                   onClick={handleOrientationToggle}
                   className="p-1.5 rounded-md hover:bg-surface disabled:text-text-tertiary disabled:cursor-not-allowed"
@@ -155,7 +150,7 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
                     onClick={() => handlePresetClick(preset)}
                     className={`px-2 py-1.5 text-sm rounded-md transition-colors ${
                       isPresetActive(preset)
-                        ? 'bg-surface text-white'
+                        ? 'bg-surface text-text-primary'
                         : 'bg-surface hover:bg-card-active'
                     }`}
                   >
@@ -166,8 +161,7 @@ export default function CropPanel({ selectedImage, adjustments, setAdjustments }
               <div className="mt-3">
                 <button
                   onClick={() => {
-                    const baseRatio = 1.618; // Golden Ratio
-                    // Also make the custom button respect the derived orientation
+                    const baseRatio = 1.618;
                     const newAspectRatio = orientation === 'vertical' ? 1 / baseRatio : baseRatio;
                     setAdjustments(prev => ({ ...prev, aspectRatio: newAspectRatio, crop: null }))
                   }}

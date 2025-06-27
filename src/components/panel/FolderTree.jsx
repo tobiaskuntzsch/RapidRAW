@@ -30,7 +30,6 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false, onC
     open: { height: 'auto', opacity: 1, transition: { duration: 0.25, ease: 'easeInOut' } },
   };
 
-  // MODIFICATION: The 'visible' variant now conditionally applies a delay.
   const itemVariants = {
     hidden: { opacity: 0, x: -15 },
     visible: ({ index, total }) => ({
@@ -38,8 +37,7 @@ function TreeNode({ node, onFolderSelect, selectedPath, defaultOpen = false, onC
       x: 0,
       transition: {
         duration: 0.25,
-        // Apply stagger delay only if there are less than 5 items, otherwise fade in all at once.
-        delay: total < 5 ? index * 0.05 : 0,
+        delay: total < 8 ? index * 0.05 : 0,
       },
     }),
     exit: { opacity: 0, x: -15, transition: { duration: 0.2 } },

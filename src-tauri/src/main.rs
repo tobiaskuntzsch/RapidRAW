@@ -926,20 +926,67 @@ fn delete_files_from_disk(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn update_window_effect(theme: String, window: tauri::Window) {
+    #[cfg(target_os = "windows")]
+    {
+        let color = if theme == "light" {
+            Some((250, 250, 250, 150))
+        } else if theme == "muted-green" {
+            Some((44, 56, 54, 100))
+        } else {
+            Some((26, 29, 27, 60))
+        };
+        window_vibrancy::apply_acrylic(&window, color)
+            .expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let material = if theme == "light" {
+            window_vibrancy::NSVisualEffectMaterial::ContentBackground
+        } else {
+            window_vibrancy::NSVisualEffectMaterial::HudWindow
+        };
+        window_vibrancy::apply_vibrancy(&window, material, None, None)
+            .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
+            let app_handle = app.handle().clone();
+
+            let settings: AppSettings = load_settings(app_handle).unwrap_or_default();
+            let theme = settings.theme.unwrap_or_else(|| "dark".to_string());
 
             #[cfg(target_os = "macos")]
-            apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None)
-                .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+            {
+                let material = if theme == "light" {
+                    NSVisualEffectMaterial::ContentBackground
+                } else {
+                    NSVisualEffectMaterial::HudWindow
+                };
+                apply_vibrancy(&window, material, None, None)
+                    .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+            }
 
             #[cfg(target_os = "windows")]
-            apply_acrylic(&window, Some((26, 29, 27, 60)))
-                .expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
+            {
+                let color = if theme == "light" {
+                    Some((250, 250, 250, 150))
+                } else if theme == "muted-green" {
+                    Some((44, 56, 54, 100))
+                } else {
+                    Some((26, 29, 27, 60))
+                };
+                apply_acrylic(&window, color)
+                    .expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
+            }
 
             Ok(())
         })
@@ -981,7 +1028,8 @@ fn main() {
             handle_import_presets_from_file,
             handle_export_presets_to_file,
             clear_all_sidecars,
-            clear_thumbnail_cache
+            clear_thumbnail_cache,
+            update_window_effect
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

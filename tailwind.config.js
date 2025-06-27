@@ -7,18 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        'bg-primary': 'rgba(26, 26, 26, 0.6)',
-        'bg-secondary': 'rgba(34, 34, 34, 0.75)',
-        'surface': '#1f1f1f',
-        'card-active': '#2b2b2b',
-        'button-text': '#000000',
-
-        'text-primary': '#e8eaed',
-        'text-secondary': '#9e9e9e',
-        'accent': '#ffffff',
-
-        'border-color': '#4a4a4a',
-        'hover-color': '#ffffff',
+        'bg-primary': 'rgba(var(--color-bg-primary-rgb), var(--opacity-bg-primary, 1))',
+        'bg-secondary': 'rgba(var(--color-bg-secondary-rgb), var(--opacity-bg-secondary, 1))',
+        'surface': 'rgb(var(--color-surface) / <alpha-value>)',
+        'card-active': 'rgb(var(--color-card-active) / <alpha-value>)',
+        'button-text': 'rgb(var(--color-button-text) / <alpha-value>)',
+        'text-primary': 'rgb(var(--color-text-primary) / <alpha-value>)',
+        'text-secondary': 'rgb(var(--color-text-secondary) / <alpha-value>)',
+        'accent': 'rgb(var(--color-accent) / <alpha-value>)',
+        'border-color': 'rgb(var(--color-border-color) / <alpha-value>)',
+        'hover-color': 'rgb(var(--color-hover-color) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Poppins', 'system-ui', 'sans-serif'],

@@ -9,7 +9,7 @@ export function useContextMenu() {
   return useContext(ContextMenuContext);
 }
 
-function SubMenu({ parentRef, options, hideContextMenu, clearParentTimeout }) {
+function SubMenu({ parentRef, options, hideContextMenu, closeSubmenu, cancelCloseSubmenu }) {
   const menuRef = useRef(null);
   const [style, setStyle] = useState({ opacity: 0 });
   const [isClient, setIsClient] = useState(false);
@@ -58,7 +58,8 @@ function SubMenu({ parentRef, options, hideContextMenu, clearParentTimeout }) {
       transition={{ duration: 0.1, ease: 'easeOut' }}
       className="fixed z-[51]"
       style={style}
-      onMouseEnter={clearParentTimeout}
+      onMouseEnter={cancelCloseSubmenu}
+      onMouseLeave={closeSubmenu}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="bg-surface/90 backdrop-blur-md rounded-lg shadow-xl p-2 w-56" role="menu">
@@ -83,26 +84,27 @@ function SubMenu({ parentRef, options, hideContextMenu, clearParentTimeout }) {
 }
 
 function MenuItem({ option, index, isSubmenuItem = false, hideContextMenu }) {
-  const { setActiveSubmenu, activeSubmenu } = useContextMenu();
+  const { activeSubmenu, openSubmenu, closeSubmenu, cancelCloseSubmenu } = useContextMenu();
   const itemRef = useRef(null);
-  const leaveTimeoutRef = useRef(null);
 
   const isSubmenuOpen = !isSubmenuItem && activeSubmenu === index;
 
   const handleMouseEnter = () => {
-    clearTimeout(leaveTimeoutRef.current);
+    cancelCloseSubmenu();
+    if (option.disabled) {
+      if (!isSubmenuItem) closeSubmenu();
+      return;
+    }
     if (option.submenu) {
-      setActiveSubmenu(index);
+      openSubmenu(index);
     } else if (!isSubmenuItem) {
-      setActiveSubmenu(null);
+      closeSubmenu();
     }
   };
 
   const handleMouseLeave = () => {
-    if (option.submenu) {
-      leaveTimeoutRef.current = setTimeout(() => {
-        setActiveSubmenu(null);
-      }, 200);
+    if (option.submenu && !option.disabled) {
+      closeSubmenu();
     }
   };
 
@@ -142,7 +144,8 @@ function MenuItem({ option, index, isSubmenuItem = false, hideContextMenu }) {
             parentRef={itemRef}
             options={option.submenu}
             hideContextMenu={hideContextMenu}
-            clearParentTimeout={() => clearTimeout(leaveTimeoutRef.current)}
+            closeSubmenu={closeSubmenu}
+            cancelCloseSubmenu={cancelCloseSubmenu}
           />
         )}
       </AnimatePresence>
@@ -151,13 +154,14 @@ function MenuItem({ option, index, isSubmenuItem = false, hideContextMenu }) {
 }
 
 function ContextMenu() {
-  const { menuState, hideContextMenu, menuRef } = useContextMenu();
+  const { menuState, hideContextMenu, menuRef, menuId } = useContextMenu();
   const { isVisible, x, y, options } = menuState;
 
   return (
     <AnimatePresence>
       {isVisible && (
         <motion.div
+          key={menuId}
           ref={menuRef}
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -186,7 +190,9 @@ function ContextMenu() {
 export function ContextMenuProvider({ children }) {
   const [menuState, setMenuState] = useState({ isVisible: false, x: 0, y: 0, options: [] });
   const [activeSubmenu, setActiveSubmenu] = useState(null);
+  const [menuId, setMenuId] = useState(0);
   const menuRef = useRef(null);
+  const submenuTimeoutRef = useRef(null);
 
   const showContextMenu = useCallback((x, y, options) => {
     const menuWidth = 256;
@@ -195,12 +201,28 @@ export function ContextMenuProvider({ children }) {
     const adjustedY = y + menuHeight > window.innerHeight ? window.innerHeight - menuHeight - 10 : y;
 
     setMenuState({ isVisible: true, x: adjustedX, y: adjustedY, options });
+    setMenuId(id => id + 1);
     setActiveSubmenu(null);
   }, []);
 
   const hideContextMenu = useCallback(() => {
     setMenuState((prev) => ({ ...prev, isVisible: false }));
     setActiveSubmenu(null);
+  }, []);
+
+  const openSubmenu = useCallback((index) => {
+    clearTimeout(submenuTimeoutRef.current);
+    setActiveSubmenu(index);
+  }, []);
+
+  const closeSubmenu = useCallback(() => {
+    submenuTimeoutRef.current = setTimeout(() => {
+      setActiveSubmenu(null);
+    }, 200);
+  }, []);
+
+  const cancelCloseSubmenu = useCallback(() => {
+    clearTimeout(submenuTimeoutRef.current);
   }, []);
 
   useEffect(() => {
@@ -243,7 +265,10 @@ export function ContextMenuProvider({ children }) {
     hideContextMenu,
     menuRef,
     activeSubmenu,
-    setActiveSubmenu,
+    openSubmenu,
+    closeSubmenu,
+    cancelCloseSubmenu,
+    menuId,
   };
 
   return (

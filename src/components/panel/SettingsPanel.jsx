@@ -13,6 +13,12 @@ const resolutions = [
   { value: 3840, label: '3840px' },
 ];
 
+const themes = [
+  { value: 'dark', label: 'Dark' },
+  { value: 'light', label: 'Light' },
+  { value: 'muted-green', label: 'Muted Green' },
+];
+
 const KeybindItem = ({ keys, description }) => (
   <div className="flex justify-between items-center py-2">
     <span className="text-text-secondary">{description}</span>
@@ -114,16 +120,36 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
       />
       <div className="flex flex-col h-full w-full text-text-primary">
         <header className="flex-shrink-0 flex items-center mb-6">
-          <Button onClick={onBack} variant="ghost" size="icon" className="mr-2 hover:bg-surface text-white rounded-full">
+          <Button onClick={onBack} variant="ghost" size="icon" className="mr-2 hover:bg-surface text-text-primary rounded-full">
             <ArrowLeft />
           </Button>
-          <h1 className="text-3xl font-bold text-primary">Settings</h1>
+          <h1 className="text-3xl font-bold text-accent">Settings</h1>
         </header>
         <div className="flex-1 overflow-y-auto pr-2 -mr-2 space-y-8">
           
+          {/* Appearance Settings */}
+          <div className="p-6 bg-surface rounded-xl shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-accent">Appearance</h2>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="theme-select" className="block text-sm font-medium text-text-secondary mb-2">
+                  Theme
+                </label>
+                <Dropdown
+                  options={themes}
+                  value={appSettings?.theme || 'dark'}
+                  onChange={(value) => onSettingsChange({ ...appSettings, theme: value })}
+                />
+                <p className="text-xs text-text-secondary mt-2">
+                  Change the look and feel of the application.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Editor Settings */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-primary">Editor</h2>
+            <h2 className="text-xl font-semibold mb-4 text-accent">Editor</h2>
             <div className="space-y-4">
               <div>
                 <label htmlFor="preview-resolution" className="block text-sm font-medium text-text-secondary mb-2">
@@ -143,7 +169,7 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
 
           {/* Data Management */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-primary">Data Management</h2>
+            <h2 className="text-xl font-semibold mb-4 text-accent">Data Management</h2>
             <div className="space-y-4">
               <div>
                 <h3 className="font-medium text-text-primary">Clear All Sidecar Files</h3>
@@ -187,10 +213,10 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
 
           {/* Keyboard Shortcuts */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-primary">Keyboard Shortcuts</h2>
+            <h2 className="text-xl font-semibold mb-4 text-accent">Keyboard Shortcuts</h2>
             <div className="space-y-1 text-sm divide-y divide-border-color">
               <div>
-                <h3 className="text-lg font-semibold pt-3 pb-2 text-primary">General</h3>
+                <h3 className="text-lg font-semibold pt-3 pb-2 text-accent">General</h3>
                 <KeybindItem keys={['Ctrl/Cmd', '+', 'C']} description="Copy selected adjustments" />
                 <KeybindItem keys={['Ctrl/Cmd', '+', 'V']} description="Paste copied adjustments" />
                 <KeybindItem keys={['Ctrl/Cmd', '+', 'Shift', '+', 'C']} description="Copy selected file(s)" />
@@ -201,7 +227,7 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
                 <KeybindItem keys={['←', '→']} description="Navigate between images" />
               </div>
               <div className="pt-2">
-                <h3 className="text-lg font-semibold pt-3 pb-2 text-primary">Editor</h3>
+                <h3 className="text-lg font-semibold pt-3 pb-2 text-accent">Editor</h3>
                 <KeybindItem keys={['Esc']} description="Exit editor / fullscreen" />
                 <KeybindItem keys={['Ctrl/Cmd', '+', 'Z']} description="Undo adjustment" />
                 <KeybindItem keys={['Ctrl/Cmd', '+', 'Y']} description="Redo adjustment" />
@@ -217,7 +243,7 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
 
           {/* Information */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
-            <h2 className="text-xl font-semibold mb-2 text-primary">Information</h2>
+            <h2 className="text-xl font-semibold mb-2 text-accent">Information</h2>
             {appSettings?.lastRootPath && (
               <div className="mt-4">
                 <h3 className="font-medium text-text-primary">Last Used Folder</h3>

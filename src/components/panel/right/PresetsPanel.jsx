@@ -236,7 +236,7 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
                   custom={index}
                   onClick={() => handleApplyPreset(preset)}
                   onContextMenu={(e) => handleContextMenu(e, preset)}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-bg-primary cursor-pointer hover:bg-surface-hover"
+                  className="flex items-center gap-2 p-2 rounded-lg bg-surface cursor-pointer hover:bg-surface-hover"
                 >
                   <div className="w-20 h-14 bg-bg-tertiary rounded-md flex items-center justify-center flex-shrink-0">
                     {isGeneratingPreviews && !previews[preset.id] ? (

@@ -20,7 +20,7 @@ export default function RightPanelSwitcher({ activePanel, onPanelSelect }) {
           title={title}
           className={`p-2 rounded-md transition-colors duration-200 ${
             activePanel === id
-              ? 'bg-surface text-white'
+              ? 'bg-surface text-text-primary'
               : 'text-text-secondary hover:bg-surface hover:text-text-primary'
           }`}
         >

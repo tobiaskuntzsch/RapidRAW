@@ -27,7 +27,7 @@ import CreateFolderModal from './components/modals/CreateFolderModal';
 import RenameFolderModal from './components/modals/RenameFolderModal';
 import ConfirmModal from './components/modals/ConfirmModal';
 
-const DEBUG = false;
+const DEBUG = true;
 
 export const INITIAL_MASK_ADJUSTMENTS = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
@@ -175,6 +175,7 @@ function App() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isFullScreenLoading, setIsFullScreenLoading] = useState(false);
   const [fullScreenUrl, setFullScreenUrl] = useState(null);
+  const [theme, setTheme] = useState('dark');
   const [activeRightPanel, setActiveRightPanel] = useState('adjustments');
   const [activeMaskId, setActiveMaskId] = useState(null);
   const [zoom, setZoom] = useState(1);
@@ -285,22 +286,38 @@ function App() {
   }, [activeRightPanel]);
 
   const handleSettingsChange = useCallback((newSettings) => {
+    if (newSettings.theme && newSettings.theme !== theme) {
+      setTheme(newSettings.theme);
+    }
     setAppSettings(newSettings);
     invoke('save_settings', { settings: newSettings }).catch(err => console.error("Failed to save settings:", err));
-  }, []);
+  }, [theme]);
 
   useEffect(() => {
     invoke('load_settings')
       .then(settings => {
         setAppSettings(settings);
         if (settings?.sortCriteria) setSortCriteria(settings.sortCriteria);
+        if (settings?.theme) {
+          setTheme(settings.theme);
+        }
       })
       .catch(err => {
         console.error("Failed to load settings:", err);
-        setAppSettings({ lastRootPath: null });
+        setAppSettings({ lastRootPath: null, theme: 'dark' });
       })
       .finally(() => { isInitialMount.current = false; });
   }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const newTheme = theme || 'dark';
+
+    root.classList.remove('theme-dark', 'theme-light', 'theme-muted-green');
+    root.classList.add(`theme-${newTheme}`);
+    
+    invoke('update_window_effect', { theme: newTheme });
+  }, [theme]);
 
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;
@@ -402,7 +419,7 @@ function App() {
     const isSingle = pathsToDelete.length === 1;
     setConfirmModalState({
         isOpen: true,
-        title: 'Confirm Deletion',
+        title: 'Confirm',
         message: `Are you sure you want to permanently delete ${isSingle ? 'this image' : `${pathsToDelete.length} images`} from your disk? This action cannot be undone.`,
         confirmText: 'Delete',
         confirmVariant: 'destructive',
@@ -863,7 +880,7 @@ function App() {
       { label: 'Show in File Explorer', icon: Folder, onClick: () => invoke('show_in_finder', { path: targetPath }).catch(err => setError(`Could not show folder: ${err}`)) },
       ...(path ? [{ label: 'Delete Folder', icon: Trash2, isDestructive: true, disabled: isRoot, submenu: [
           { label: 'Cancel', icon: X, onClick: () => {} },
-          { label: 'Confirm Delete', icon: Check, isDestructive: true, onClick: async () => {
+          { label: 'Confirm', icon: Check, isDestructive: true, onClick: async () => {
               try { await invoke('delete_folder', { path: targetPath }); if (currentFolderPath.startsWith(targetPath)) await handleSelectSubfolder(rootPath); handleRefreshFolderTree(); }
               catch (err) { setError(`Failed to delete folder: ${err}`); }
             },
@@ -1001,6 +1018,7 @@ function App() {
             setSortCriteria={setSortCriteria}
             onSettingsChange={handleSettingsChange}
             onLibraryRefresh={handleLibraryRefresh}
+            theme={theme}
           />
           {rootPath && <BottomBar
             isLibraryView={true}

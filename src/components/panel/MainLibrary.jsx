@@ -86,7 +86,7 @@ function SortDropdown({ sortCriteria, setSortCriteria }) {
                 className={`
                   w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between
                   transition-colors duration-150
-                  ${isSelected ? 'bg-surface text-white font-semibold' : 'text-text-primary hover:bg-bg-primary'}
+                  ${isSelected ? 'bg-card-active text-text-primary font-semibold' : 'text-text-primary hover:bg-bg-primary'}
                 `}
                 role="menuitem"
               >
@@ -145,9 +145,9 @@ function Thumbnail({ path, data, onImageClick, onImageDoubleClick, isSelected, i
         </div>
       )}
       {rating > 0 && (
-        <div className="absolute top-1.5 right-1.5 bg-primary rounded-full px-1.5 py-0.5 text-xs text-white flex items-center gap-1 backdrop-blur-sm">
+        <div className="absolute top-1.5 right-1.5 bg-bg-primary/50 rounded-full px-1.5 py-0.5 text-xs text-text-primary flex items-center gap-1 backdrop-blur-sm">
           <span>{rating}</span>
-          <Star size={12} className="text-white fill-white" />
+          <Star size={12} className="text-accent fill-accent" />
         </div>
       )}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
@@ -178,14 +178,32 @@ export default function MainLibrary({
   setSortCriteria,
   onSettingsChange,
   onLibraryRefresh,
+  theme,
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const prevFolderPathRef = useRef();
   const isNewFolder = currentFolderPath !== prevFolderPathRef.current;
 
+  const [splashImage, setSplashImage] = useState('/splash-dark.jpg');
+
   useEffect(() => {
     prevFolderPathRef.current = currentFolderPath;
   }, [currentFolderPath]);
+
+  useEffect(() => {
+    switch (theme) {
+      case 'light':
+        setSplashImage('/splash-light.jpg');
+        break;
+      case 'muted-green':
+        setSplashImage('/splash-green.jpg');
+        break;
+      case 'dark':
+      default:
+        setSplashImage('/splash-dark.jpg');
+        break;
+    }
+  }, [theme]);
 
   if (!rootPath) {
     if (!appSettings) {
@@ -203,12 +221,18 @@ export default function MainLibrary({
     return (
       <div className="flex-1 flex h-full rounded-lg bg-bg-secondary overflow-hidden shadow-lg">
         <div className="w-1/2 hidden md:block relative">
-          <img
-            src="/splash.jpg"
-            className="w-full h-full object-cover"
-            alt="Splash screen background"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-bg-secondary via-bg-secondary/50 to-transparent"></div>
+          <AnimatePresence>
+            <motion.img
+              key={splashImage}
+              src={splashImage}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5, ease: 'easeInOut' }}
+              className="absolute inset-0 w-full h-full object-cover"
+              alt="Splash screen background"
+            />
+          </AnimatePresence>
         </div>
 
         <div className="w-full md:w-1/2 flex flex-col p-8 lg:p-16 relative">
@@ -223,7 +247,7 @@ export default function MainLibrary({
           ) : (
             <>
               <div className="my-auto text-left">
-                <h1 className="text-5xl font-bold text-primary text-shadow-shiny mb-4">
+                <h1 className="text-5xl font-bold text-accent text-shadow-shiny mb-4">
                   RapidRAW
                 </h1>
                 <p className="text-text-secondary mb-10 max-w-md">
@@ -263,7 +287,7 @@ export default function MainLibrary({
                   </div>
                 </div>
               </div>
-              <p className="absolute bottom-8 left-8 lg:left-16 text-xs text-text-secondary">Version 1.0.0 - Image by Mahdi Bafande</p>
+              <p className="absolute bottom-8 left-8 lg:left-16 text-xs text-text-secondary">Version 1.0.7 - Images from Unsplash</p>
             </>
           )}
         </div>

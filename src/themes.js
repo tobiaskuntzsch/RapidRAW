@@ -32,9 +32,9 @@ export const THEMES = [
         '--color-button-text': '255 255 255',
         '--color-text-primary': '20 20 20',
         '--color-text-secondary': '108 108 108',
-        '--color-accent': '143 114 83',
+        '--color-accent': '181 141 98',
         '--color-border-color': '224 224 224',
-        '--color-hover-color': '143 114 83',
+        '--color-hover-color': '181 141 98',
       }
     },
     {
@@ -108,9 +108,9 @@ export const THEMES = [
         '--color-button-text': '255 255 255',
         '--color-text-primary': '33 37 41',
         '--color-text-secondary': '108 117 125',
-        '--color-accent': '221 144 113',
+        '--color-accent': '215 123 107',
         '--color-border-color': '222 226 230',
-        '--color-hover-color': '221 144 113',
+        '--color-hover-color': '215 123 107',
       }
     },
     {

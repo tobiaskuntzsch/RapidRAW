@@ -22,8 +22,8 @@ const StarRating = ({ rating, onRate, disabled }) => {
                 disabled
                   ? 'text-bg-primary'
                   : starValue <= rating
-                  ? 'fill-white text-white'
-                  : 'text-text-secondary hover:text-text-primary'
+                  ? 'fill-accent text-accent'
+                  : 'text-text-secondary hover:text-accent'
               )}
             />
           </button>

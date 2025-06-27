@@ -1,7 +1,7 @@
 [package]
 name = "RapidRAW"
-version = "0.1.0"
-description = "A Tauri App"
+version = "1.0.7"
+description = "A blazingly-fast, non-destructive, and GPU-accelerated RAW image editor built with performance in mind."
 authors = ["you"]
 edition = "2021"
 
@@ -26,9 +26,9 @@ rayon = "1.10.0"
 blake3 = "1.5.1"
 palette = "0.7"
 jpeg-decoder = "0.3.0"
-wgpu = "0.19" # The core GPU abstraction library
-pollster = "0.3" # A simple helper for running async wgpu code in a sync context
-bytemuck = { version = "1.14", features = ["derive"] } # For safely casting structs to raw bytes for the GPU
+wgpu = "0.19"
+pollster = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
 window-vibrancy = "0.6.0"
 anyhow = "1.0.98"
 kamadak-exif = "0.6.1"

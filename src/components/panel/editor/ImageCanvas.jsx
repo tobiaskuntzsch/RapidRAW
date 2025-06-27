@@ -319,6 +319,20 @@ const ImageCanvas = memo(({
   const activeMask = useMemo(() => adjustments.masks.find(m => m.id === activeMaskId), [adjustments.masks, activeMaskId]);
   const isBrushActive = isMasking && activeMask?.type === 'brush';
 
+  const sortedMasks = useMemo(() => {
+    if (!activeMaskId) {
+      return adjustments.masks;
+    }
+    const selectedMask = adjustments.masks.find(m => m.id === activeMaskId);
+    const otherMasks = adjustments.masks.filter(m => m.id !== activeMaskId);
+    
+    if (!selectedMask) {
+      return adjustments.masks;
+    }
+
+    return [...otherMasks, selectedMask];
+  }, [adjustments.masks, activeMaskId]);
+
   useEffect(() => {
     const { path: currentImagePath, originalUrl, thumbnailUrl } = selectedImage;
     const topLayer = layers[layers.length - 1];
@@ -558,7 +572,7 @@ const ImageCanvas = memo(({
             onMouseLeave={handleMouseLeave}
           >
             <Layer>
-              {adjustments.masks.map(mask => (
+              {sortedMasks.map(mask => (
                 <MaskOverlay
                   key={mask.id}
                   mask={mask}

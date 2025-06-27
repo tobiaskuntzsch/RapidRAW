@@ -109,7 +109,7 @@ function MenuItem({ option, index, isSubmenuItem = false, hideContextMenu }) {
   };
 
   if (option.type === 'separator') {
-    return <div className="h-px bg-white/10 my-1 mx-2" />;
+    return <div className="h-px bg-text-secondary/20 my-1 mx-2" />;
   }
 
   return (

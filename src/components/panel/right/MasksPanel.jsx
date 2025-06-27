@@ -33,7 +33,7 @@ const itemVariants = {
 
 export default function MasksPanel({
   adjustments, setAdjustments, selectedImage, onSelectMask, activeMaskId,
-  brushSettings, setBrushSettings, copiedMask, setCopiedMask
+  brushSettings, setBrushSettings, copiedMask, setCopiedMask, histogram
 }) {
   const [editingMaskId, setEditingMaskId] = useState(null);
   const [deletingMaskId, setDeletingMaskId] = useState(null);
@@ -241,6 +241,7 @@ export default function MasksPanel({
           updateMask={updateMask}
           brushSettings={brushSettings}
           setBrushSettings={setBrushSettings}
+          histogram={histogram}
         />
       </div>
     );

@@ -136,7 +136,7 @@ pub struct GlobalAdjustments {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
-pub struct MaskAdjustmentUniform {
+pub struct MaskAdjustments {
     pub exposure: f32,
     pub contrast: f32,
     pub highlights: f32,
@@ -147,19 +147,35 @@ pub struct MaskAdjustmentUniform {
     pub temperature: f32,
     pub tint: f32,
     pub vibrance: f32,
-    pub invert: u32,
+    
+    pub sharpness: f32,
+    pub luma_noise_reduction: f32,
+    pub color_noise_reduction: f32,
+    pub clarity: f32,
+    pub dehaze: f32,
+    pub structure: f32,
+    
     _pad1: f32,
     _pad2: f32,
     _pad3: f32,
     _pad4: f32,
-    _pad5: f32,
+
+    pub hsl: [HslColor; 8],
+    pub luma_curve: [Point; 16],
+    pub red_curve: [Point; 16],
+    pub green_curve: [Point; 16],
+    pub blue_curve: [Point; 16],
+    pub luma_curve_count: u32,
+    pub red_curve_count: u32,
+    pub green_curve_count: u32,
+    pub blue_curve_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct AllAdjustments {
     pub global: GlobalAdjustments,
-    pub mask_adjustments: [MaskAdjustmentUniform; 16],
+    pub mask_adjustments: [MaskAdjustments; 16],
     pub mask_count: u32,
     pub tile_offset_x: u32,
     pub tile_offset_y: u32,
@@ -179,6 +195,27 @@ fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
                     hue: color_data["hue"].as_f64().unwrap_or(0.0) as f32 * 0.3,
                     saturation: color_data["saturation"].as_f64().unwrap_or(0.0) as f32 / 100.0,
                     luminance: color_data["luminance"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+                    _pad: 0.0,
+                };
+            }
+        }
+    }
+    hsl_array
+}
+
+fn parse_hsl_adjustments_for_mask(js_hsl: &serde_json::Value) -> [HslColor; 8] {
+    let mut hsl_array = [HslColor::default(); 8];
+    if let Some(hsl_map) = js_hsl.as_object() {
+        let color_map = [
+            ("reds", 0), ("oranges", 1), ("yellows", 2), ("greens", 3),
+            ("aquas", 4), ("blues", 5), ("purples", 6), ("magentas", 7),
+        ];
+        for (name, index) in color_map.iter() {
+            if let Some(color_data) = hsl_map.get(*name) {
+                hsl_array[*index] = HslColor {
+                    hue: color_data["hue"].as_f64().unwrap_or(0.0) as f32 * 0.15,
+                    saturation: color_data["saturation"].as_f64().unwrap_or(0.0) as f32 / 200.0,
+                    luminance: color_data["luminance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
                     _pad: 0.0,
                 };
             }
@@ -247,7 +284,7 @@ fn get_global_adjustments_from_json(js_adjustments: &serde_json::Value) -> Globa
 
 pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value) -> AllAdjustments {
     let global = get_global_adjustments_from_json(js_adjustments);
-    let mut mask_adjustments = [MaskAdjustmentUniform::default(); 16];
+    let mut mask_adjustments = [MaskAdjustments::default(); 16];
     let mut mask_count = 0;
 
     let mask_definitions: Vec<MaskDefinition> = js_adjustments.get("masks")
@@ -256,8 +293,13 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value) -> AllA
 
     for (i, mask_def) in mask_definitions.iter().filter(|m| m.visible).enumerate().take(16) {
         let adj = &mask_def.adjustments;
-        mask_adjustments[i] = MaskAdjustmentUniform {
-            invert: if mask_def.invert { 1 } else { 0 },
+        let curves_obj = adj.get("curves").cloned().unwrap_or_default();
+        let luma_points: Vec<serde_json::Value> = curves_obj["luma"].as_array().cloned().unwrap_or_default();
+        let red_points: Vec<serde_json::Value> = curves_obj["red"].as_array().cloned().unwrap_or_default();
+        let green_points: Vec<serde_json::Value> = curves_obj["green"].as_array().cloned().unwrap_or_default();
+        let blue_points: Vec<serde_json::Value> = curves_obj["blue"].as_array().cloned().unwrap_or_default();
+
+        mask_adjustments[i] = MaskAdjustments {
             exposure: adj["exposure"].as_f64().unwrap_or(0.0) as f32 / 100.0,
             contrast: adj["contrast"].as_f64().unwrap_or(0.0) as f32 / 200.0,
             highlights: adj["highlights"].as_f64().unwrap_or(0.0) as f32 / 200.0,
@@ -268,8 +310,25 @@ pub fn get_all_adjustments_from_json(js_adjustments: &serde_json::Value) -> AllA
             temperature: adj["temperature"].as_f64().unwrap_or(0.0) as f32 / 250.0,
             tint: adj["tint"].as_f64().unwrap_or(0.0) as f32 / 250.0,
             vibrance: adj["vibrance"].as_f64().unwrap_or(0.0) as f32 / 200.0,
-            _pad1: 0.0, _pad2: 0.0, _pad3: 0.0,
-            _pad4: 0.0, _pad5: 0.0,
+            
+            sharpness: adj["sharpness"].as_f64().unwrap_or(0.0) as f32 / 40.0,
+            luma_noise_reduction: adj["lumaNoiseReduction"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+            color_noise_reduction: adj["colorNoiseReduction"].as_f64().unwrap_or(0.0) as f32 / 100.0,
+            clarity: adj["clarity"].as_f64().unwrap_or(0.0) as f32 / 400.0,
+            dehaze: adj["dehaze"].as_f64().unwrap_or(0.0) as f32 / 2000.0,
+            structure: adj["structure"].as_f64().unwrap_or(0.0) as f32 / 400.0,
+            
+            _pad1: 0.0, _pad2: 0.0, _pad3: 0.0, _pad4: 0.0,
+
+            hsl: parse_hsl_adjustments_for_mask(&adj.get("hsl").cloned().unwrap_or_default()),
+            luma_curve: convert_points_to_aligned(luma_points.clone()),
+            red_curve: convert_points_to_aligned(red_points.clone()),
+            green_curve: convert_points_to_aligned(green_points.clone()),
+            blue_curve: convert_points_to_aligned(blue_points.clone()),
+            luma_curve_count: luma_points.len() as u32,
+            red_curve_count: red_points.len() as u32,
+            green_curve_count: green_points.len() as u32,
+            blue_curve_count: blue_points.len() as u32,
         };
         mask_count += 1;
     }

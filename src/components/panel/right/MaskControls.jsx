@@ -37,7 +37,7 @@ const BrushTools = ({ settings, onSettingsChange }) => (
   </div>
 );
 
-export default function MaskControls({ editingMask, updateMask, brushSettings, setBrushSettings }) {
+export default function MaskControls({ editingMask, updateMask, brushSettings, setBrushSettings, histogram }) {
   const { showContextMenu } = useContextMenu();
   const [isSettingsSectionOpen, setSettingsSectionOpen] = useState(true);
   const [copiedSectionAdjustments, setCopiedSectionAdjustments] = useState(null);
@@ -133,7 +133,7 @@ export default function MaskControls({ editingMask, updateMask, brushSettings, s
       </CollapsibleSection>
 
       <CollapsibleSection title="Curves" isOpen={collapsibleState.curves} onToggle={() => handleToggleSection('curves')} onContextMenu={(e) => handleSectionContextMenu(e, 'curves')}>
-        <CurveGraph adjustments={editingMask.adjustments} setAdjustments={setMaskAdjustments} histogram={null} />
+        <CurveGraph adjustments={editingMask.adjustments} setAdjustments={setMaskAdjustments} histogram={histogram} />
       </CollapsibleSection>
 
       <CollapsibleSection title="Color" isOpen={collapsibleState.color} onToggle={() => handleToggleSection('color')} onContextMenu={(e) => handleSectionContextMenu(e, 'color')}>

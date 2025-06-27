@@ -50,7 +50,7 @@ struct GlobalAdjustments {
     blue_curve_count: u32,
 }
 
-struct MaskAdjustmentUniform {
+struct MaskAdjustments {
     exposure: f32,
     contrast: f32,
     highlights: f32,
@@ -61,17 +61,33 @@ struct MaskAdjustmentUniform {
     temperature: f32,
     tint: f32,
     vibrance: f32,
-    invert: u32,
+    
+    sharpness: f32,
+    luma_noise_reduction: f32,
+    color_noise_reduction: f32,
+    clarity: f32,
+    dehaze: f32,
+    structure: f32,
+    
     _pad1: f32,
     _pad2: f32,
     _pad3: f32,
     _pad4: f32,
-    _pad5: f32,
+
+    hsl: array<HslColor, 8>,
+    luma_curve: array<Point, 16>,
+    red_curve: array<Point, 16>,
+    green_curve: array<Point, 16>,
+    blue_curve: array<Point, 16>,
+    luma_curve_count: u32,
+    red_curve_count: u32,
+    green_curve_count: u32,
+    blue_curve_count: u32,
 }
 
 struct AllAdjustments {
     global: GlobalAdjustments,
-    mask_adjustments: array<MaskAdjustmentUniform, 16>,
+    mask_adjustments: array<MaskAdjustments, 16>,
     mask_count: u32,
     tile_offset_x: u32,
     tile_offset_y: u32,
@@ -389,16 +405,41 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     // Local Adjustments (Masks)
     for (var i = 0u; i < adjustments.mask_count; i = i + 1u) {
         let mask_adj = adjustments.mask_adjustments[i];
-
-        var influence = textureLoad(mask_textures, id.xy, i, 0).r;
+        let influence = textureLoad(mask_textures, id.xy, i, 0).r;
         
-        if (mask_adj.invert == 1u) {
-            influence = 1.0 - influence;
-        }
-
         if (influence > 0.001) {
-            var mask_adjusted_rgb = apply_tonal_adjustments(processed_rgb, mask_adj.exposure, mask_adj.contrast, mask_adj.highlights, mask_adj.shadows, mask_adj.whites, mask_adj.blacks);
+            var mask_adjusted_rgb = processed_rgb;
+
+            // Apply all adjustments for the mask
+            mask_adjusted_rgb = apply_noise_reduction(mask_adjusted_rgb, absolute_coord_i, mask_adj.luma_noise_reduction, mask_adj.color_noise_reduction);
+            mask_adjusted_rgb = apply_dehaze_fast(mask_adjusted_rgb, absolute_coord_i, mask_adj.dehaze);
+            mask_adjusted_rgb = apply_tonal_adjustments(mask_adjusted_rgb, mask_adj.exposure, mask_adj.contrast, mask_adj.highlights, mask_adj.shadows, mask_adj.whites, mask_adj.blacks);
             mask_adjusted_rgb = apply_color_adjustments(mask_adjusted_rgb, mask_adj.saturation, mask_adj.temperature, mask_adj.tint, mask_adj.vibrance);
+            
+            mask_adjusted_rgb = apply_local_contrast(mask_adjusted_rgb, absolute_coord_i, 2, mask_adj.sharpness);
+            mask_adjusted_rgb = apply_local_contrast(mask_adjusted_rgb, absolute_coord_i, 6, mask_adj.clarity);
+            mask_adjusted_rgb = apply_local_contrast(mask_adjusted_rgb, absolute_coord_i, 14, mask_adj.structure);
+
+            var mask_hsv = rgb_to_hsv(mask_adjusted_rgb);
+            if (mask_hsv.y > 0.01) {
+                var total_hue_shift: f32 = 0.0; var total_sat_adjust: f32 = 0.0; var total_lum_adjust: f32 = 0.0; var total_influence: f32 = 0.0;
+                var hsl_influence = get_hsl_influence(mask_hsv.x, 0.0, 80.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[0].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[0].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[0].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 30.0, 70.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[1].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[1].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[1].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 60.0, 70.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[2].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[2].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[2].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 120.0, 100.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[3].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[3].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[3].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 180.0, 80.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[4].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[4].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[4].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 240.0, 90.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[5].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[5].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[5].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 285.0, 80.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[6].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[6].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[6].luminance * hsl_influence; total_influence += hsl_influence; }
+                hsl_influence = get_hsl_influence(mask_hsv.x, 330.0, 80.0); if (hsl_influence > 0.001) { total_hue_shift += mask_adj.hsl[7].hue * hsl_influence; total_sat_adjust += mask_adj.hsl[7].saturation * hsl_influence; total_lum_adjust += mask_adj.hsl[7].luminance * hsl_influence; total_influence += hsl_influence; }
+                if (total_influence > 0.001) { let norm_factor = 1.0 / total_influence; mask_hsv.x = (mask_hsv.x + total_hue_shift * norm_factor + 360.0) % 360.0; mask_hsv.y = clamp(mask_hsv.y * (1.0 + total_sat_adjust * norm_factor), 0.0, 1.0); mask_hsv.z = clamp(mask_hsv.z * (1.0 + total_lum_adjust * norm_factor), 0.0, 1.0); }
+            }
+            mask_adjusted_rgb = hsv_to_rgb(mask_hsv);
+
+            let mask_srgb_for_curves = linear_to_srgb(mask_adjusted_rgb);
+            var mask_luma_adjusted_srgb = vec3<f32>(apply_curve(mask_srgb_for_curves.r, mask_adj.luma_curve, mask_adj.luma_curve_count), apply_curve(mask_srgb_for_curves.g, mask_adj.luma_curve, mask_adj.luma_curve_count), apply_curve(mask_srgb_for_curves.b, mask_adj.luma_curve, mask_adj.luma_curve_count));
+            let mask_curved_srgb = vec3<f32>(apply_curve(mask_luma_adjusted_srgb.r, mask_adj.red_curve, mask_adj.red_curve_count), apply_curve(mask_luma_adjusted_srgb.g, mask_adj.green_curve, mask_adj.green_curve_count), apply_curve(mask_luma_adjusted_srgb.b, mask_adj.blue_curve, mask_adj.blue_curve_count));
+            mask_adjusted_rgb = srgb_to_linear(mask_curved_srgb);
+
             processed_rgb = mix(processed_rgb, mask_adjusted_rgb, influence);
         }
     }

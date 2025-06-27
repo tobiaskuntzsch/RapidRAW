@@ -180,14 +180,6 @@ export default function PresetsPanel({ adjustments, setAdjustments, selectedImag
     showContextMenu(event.clientX, event.clientY, options);
   };
 
-  if (isLoading && presets.length === 0) {
-    return (
-      <div className="flex flex-col h-full p-4 text-center text-text-secondary">
-        Loading presets...
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 flex justify-between items-center flex-shrink-0 border-b border-surface">

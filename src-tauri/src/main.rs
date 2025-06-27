@@ -70,6 +70,7 @@ struct AppSettings {
     last_root_path: Option<String>,
     editor_preview_resolution: Option<u32>,
     sort_criteria: Option<SortCriteria>,
+    theme: Option<String>,
 }
 
 #[derive(serde::Serialize)]

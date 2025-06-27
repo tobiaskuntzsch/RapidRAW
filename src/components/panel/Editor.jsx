@@ -167,9 +167,6 @@ export default function Editor({
 
   const toggleShowOriginal = useCallback(() => setShowOriginal(prev => !prev), [setShowOriginal]);
 
-  useKeydown('f', onToggleFullScreen, !isFullScreen);
-  useKeydown('.', toggleShowOriginal);
-
   if (!selectedImage) {
     return (
       <div className="flex-1 bg-bg-secondary rounded-lg flex items-center justify-center text-text-secondary">

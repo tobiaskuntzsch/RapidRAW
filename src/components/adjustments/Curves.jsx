@@ -33,14 +33,17 @@ function getHistogramPath(data) {
     return `M0,255 L${pathData} L255,255 Z`;
 }
 
-export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
+export default function CurveGraph({ adjustments, setAdjustments, histogram, theme }) {
   const [activeChannel, setActiveChannel] = useState('luma');
   const [draggingPointIndex, setDraggingPointIndex] = useState(null);
   const [localPoints, setLocalPoints] = useState(null);
   const svgRef = useRef(null);
 
+  const isLightTheme = theme === 'light' || theme === 'arctic';
+  const histogramOpacity = isLightTheme ? 0.6 : 0.15;
+
   const channelConfig = {
-    luma: { color: '#FFFFFF', data: histogram?.luma },
+    luma: { color: 'rgb(var(--color-accent))', data: histogram?.luma },
     red: { color: '#FF6B6B', data: histogram?.red },
     green: { color: '#6BCB77', data: histogram?.green },
     blue: { color: '#4D96FF', data: histogram?.blue },
@@ -191,7 +194,7 @@ export default function CurveGraph({ adjustments, setAdjustments, histogram }) {
           <path d="M 63.75,0 V 255 M 127.5,0 V 255 M 191.25,0 V 255 M 0,63.75 H 255 M 0,127.5 H 255 M 0,191.25 H 255" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
           
           {histogramData && (
-            <path d={getHistogramPath(histogramData)} fill={color} opacity="0.15" />
+            <path d={getHistogramPath(histogramData)} fill={color} opacity={histogramOpacity} />
           )}
 
           <line x1="0" y1="255" x2="255" y2="0" stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="2 2" />

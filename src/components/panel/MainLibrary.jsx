@@ -200,7 +200,7 @@ export default function MainLibrary({
     const splashImage = selectedTheme.splashImage;
 
     return (
-      <div className="flex-1 flex h-full rounded-lg bg-bg-secondary overflow-hidden shadow-lg">
+      <div className="flex-1 flex h-full bg-bg-secondary overflow-hidden shadow-lg">
         <div className="w-1/2 hidden md:block relative">
           <AnimatePresence>
             <motion.img
@@ -228,7 +228,7 @@ export default function MainLibrary({
           ) : (
             <>
               <div className="my-auto text-left">
-                <h1 className="text-5xl font-bold text-accent text-shadow-shiny mb-4">
+                <h1 className="text-5xl font-bold text-text-primary text-shadow-shiny mb-4">
                   RapidRAW
                 </h1>
                 <p className="text-text-secondary mb-10 max-w-md">
@@ -268,7 +268,7 @@ export default function MainLibrary({
                   </div>
                 </div>
               </div>
-              <p className="absolute bottom-8 left-8 lg:left-16 text-xs text-text-secondary">Version 1.0.7 - Images from Unsplash</p>
+              <p className="absolute bottom-8 left-8 lg:left-16 text-xs text-text-secondary">Version 1.0.7 - Images by Timon Käch (@timonkaech.photography)</p>
             </>
           )}
         </div>

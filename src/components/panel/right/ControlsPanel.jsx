@@ -9,6 +9,7 @@ import { INITIAL_ADJUSTMENTS, ADJUSTMENT_SECTIONS } from '../../../App';
 import { useContextMenu } from '../../../context/ContextMenuContext';
 
 export default function Controls({
+  theme,
   adjustments,
   setAdjustments,
   selectedImage,
@@ -155,6 +156,7 @@ export default function Controls({
               adjustments={adjustments}
               setAdjustments={setAdjustments}
               histogram={histogram}
+              theme={theme}
             />
           </CollapsibleSection>
         </div>

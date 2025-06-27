@@ -1,16 +1,14 @@
-// src/themes.js
-
 export const THEMES = [
     {
       id: 'dark',
       name: 'Dark',
       splashImage: '/splash-dark.jpg',
       cssVariables: {
-        '--color-bg-primary-rgb': '26, 26, 26',
+        '--color-bg-primary-rgb': '30, 30, 30',
         '--opacity-bg-primary': '0.6',
         '--color-bg-secondary-rgb': '34, 34, 34',
         '--opacity-bg-secondary': '0.75',
-        '--color-surface': '26 26 26',
+        '--color-surface': '30 30 30',
         '--color-card-active': '43 43 43',
         '--color-button-text': '0 0 0',
         '--color-text-primary': '232 234 237',
@@ -44,24 +42,24 @@ export const THEMES = [
       name: 'Muted Green',
       splashImage: '/splash-green.jpg',
       cssVariables: {
-        '--color-bg-primary-rgb': '44, 56, 54',
+        '--color-bg-primary-rgb': '55, 60, 50',
         '--opacity-bg-primary': '0.7',
-        '--color-bg-secondary-rgb': '54, 69, 58',
+        '--color-bg-secondary-rgb': '65, 70, 60',
         '--opacity-bg-secondary': '0.8',
-        '--color-surface': '38 48 46',
-        '--color-card-active': '60 75 72',
-        '--color-button-text': '230 230 230',
+        '--color-surface': '45 50 40',
+        '--color-card-active': '75 80 70',
+        '--color-button-text': '45 50 40',
         '--color-text-primary': '227 225 220',
-        '--color-text-secondary': '140 151 149',
-        '--color-accent': '138 173 162',
-        '--color-border-color': '70 85 82',
-        '--color-hover-color': '138 173 162',
+        '--color-text-secondary': '155 160 150',
+        '--color-accent': '219 212 173',
+        '--color-border-color': '85 90 80',
+        '--color-hover-color': '219 212 173',
       }
     },
     {
-      id: 'graphite',
-      name: 'Graphite',
-      splashImage: '/splash-graphite.jpg',
+      id: 'blue',
+      name: 'Blue',
+      splashImage: '/splash-blue.jpg',
       cssVariables: {
         '--color-bg-primary-rgb': '35, 38, 41',
         '--opacity-bg-primary': '0.7',
@@ -69,12 +67,12 @@ export const THEMES = [
         '--opacity-bg-secondary': '0.85',
         '--color-surface': '35 38 41',
         '--color-card-active': '52 57 62',
-        '--color-button-text': '255 255 255',
+        '--color-button-text': '35 38 41',
         '--color-text-primary': '220 225 230',
         '--color-text-secondary': '145 155 165',
-        '--color-accent': '94 129 172', // Softer, less aggressive steel blue
+        '--color-accent': '152 187 199',
         '--color-border-color': '60 65 70',
-        '--color-hover-color': '94 129 172',
+        '--color-hover-color': '152 187 199',
       }
     },
     {
@@ -91,9 +89,28 @@ export const THEMES = [
         '--color-button-text': '50 45 40',
         '--color-text-primary': '225 215 205',
         '--color-text-secondary': '160 150 140',
-        '--color-accent': '200 145 80',
+        '--color-accent': '255 226 182',
         '--color-border-color': '90 85 80',
-        '--color-hover-color': '200 145 80',
+        '--color-hover-color': '255 226 182',
+      }
+    },
+    {
+      id: 'snow',
+      name: 'Snow',
+      splashImage: '/splash-snow.jpg',
+      cssVariables: {
+        '--color-bg-primary-rgb': '248, 249, 250',
+        '--opacity-bg-primary': '0.8',
+        '--color-bg-secondary-rgb': '255, 255, 255',
+        '--opacity-bg-secondary': '0.9',
+        '--color-surface': '243 236 233',
+        '--color-card-active': '233 236 239',
+        '--color-button-text': '255 255 255',
+        '--color-text-primary': '33 37 41',
+        '--color-text-secondary': '108 117 125',
+        '--color-accent': '221 144 113',
+        '--color-border-color': '222 226 230',
+        '--color-hover-color': '221 144 113',
       }
     },
     {
@@ -105,7 +122,7 @@ export const THEMES = [
         '--opacity-bg-primary': '0.8',
         '--color-bg-secondary-rgb': '255, 255, 255',
         '--opacity-bg-secondary': '0.9',
-        '--color-surface': '248 249 250',
+        '--color-surface': '240 245 249',
         '--color-card-active': '233 236 239',
         '--color-button-text': '255 255 255',
         '--color-text-primary': '33 37 41',

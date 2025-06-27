@@ -57,7 +57,7 @@ export default function Dropdown({
             className="absolute right-0 mt-2 w-full origin-top-right z-20"
           >
             <div
-              className="bg-surface/90 backdrop-blur-md rounded-lg shadow-xl p-2 max-h-60 overflow-y-auto"
+              className="bg-surface/95 backdrop-blur-md rounded-lg shadow-xl p-2 max-h-80 overflow-y-auto"
               role="listbox"
               aria-orientation="vertical"
             >

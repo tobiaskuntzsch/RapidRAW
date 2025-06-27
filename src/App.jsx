@@ -28,7 +28,7 @@ import RenameFolderModal from './components/modals/RenameFolderModal';
 import ConfirmModal from './components/modals/ConfirmModal';
 import { THEMES, DEFAULT_THEME_ID } from './themes';
 
-const DEBUG = false;
+const DEBUG = true;
 
 export const INITIAL_MASK_ADJUSTMENTS = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
@@ -983,7 +983,7 @@ function App() {
               style={{ width: activeRightPanel ? `${rightPanelWidth}px` : '0px' }}
             >
               <div style={{ width: `${rightPanelWidth}px` }} className="h-full">
-                {renderedRightPanel === 'adjustments' && <Controls adjustments={adjustments} setAdjustments={setAdjustments} selectedImage={selectedImage} histogram={histogram} collapsibleState={collapsibleSectionsState} setCollapsibleState={setCollapsibleSectionsState} copiedSectionAdjustments={copiedSectionAdjustments} setCopiedSectionAdjustments={setCopiedSectionAdjustments} />}
+                {renderedRightPanel === 'adjustments' && <Controls theme={theme} adjustments={adjustments} setAdjustments={setAdjustments} selectedImage={selectedImage} histogram={histogram} collapsibleState={collapsibleSectionsState} setCollapsibleState={setCollapsibleSectionsState} copiedSectionAdjustments={copiedSectionAdjustments} setCopiedSectionAdjustments={setCopiedSectionAdjustments} />}
                 {renderedRightPanel === 'metadata' && <MetadataPanel selectedImage={selectedImage} />}
                 {renderedRightPanel === 'crop' && <CropPanel selectedImage={selectedImage} adjustments={adjustments} setAdjustments={setAdjustments} />}
                 {renderedRightPanel === 'masks' && <MasksPanel adjustments={adjustments} setAdjustments={setAdjustments} selectedImage={selectedImage} onSelectMask={setActiveMaskId} activeMaskId={activeMaskId} brushSettings={brushSettings} setBrushSettings={setBrushSettings} copiedMask={copiedMask} setCopiedMask={setCopiedMask} histogram={histogram} />}
@@ -1051,7 +1051,10 @@ function App() {
   return (
     <div className="flex flex-col h-screen bg-bg-primary font-sans text-text-primary overflow-hidden select-none">
       <TitleBar />
-      <div className="flex-1 flex flex-col pt-12 p-2 gap-2 min-h-0">
+      <div className={clsx(
+        "flex-1 flex flex-col min-h-0",
+        rootPath ? "pt-12 p-2 gap-2" : "pt-10"
+      )}>
         {error && (
           <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg z-50">
             {error}

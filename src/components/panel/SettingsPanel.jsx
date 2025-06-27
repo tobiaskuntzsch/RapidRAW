@@ -115,16 +115,15 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
       />
       <div className="flex flex-col h-full w-full text-text-primary">
         <header className="flex-shrink-0 flex items-center mb-6">
-          <Button onClick={onBack} variant="ghost" size="icon" className="mr-2 hover:bg-surface text-text-primary rounded-full">
+          <Button onClick={onBack} variant="ghost" size="icon" className="mr-4 hover:bg-surface text-text-primary rounded-full">
             <ArrowLeft />
           </Button>
           <h1 className="text-3xl font-bold text-accent">Settings</h1>
         </header>
         <div className="flex-1 overflow-y-auto pr-2 -mr-2 space-y-8">
           
-          {/* Appearance Settings */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-accent">Appearance</h2>
+            <h2 className="text-xl font-semibold mb-4 text-accent">General Settings</h2>
             <div className="space-y-4">
               <div>
                 <label htmlFor="theme-select" className="block text-sm font-medium text-text-secondary mb-2">
@@ -139,14 +138,8 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
                   Change the look and feel of the application.
                 </p>
               </div>
-            </div>
-          </div>
 
-          {/* Editor Settings */}
-          <div className="p-6 bg-surface rounded-xl shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-accent">Editor</h2>
-            <div className="space-y-4">
-              <div>
+              <div className="pt-6 mt-6 border-t border-border-color">
                 <label htmlFor="preview-resolution" className="block text-sm font-medium text-text-secondary mb-2">
                   Preview Resolution
                 </label>
@@ -162,7 +155,6 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
             </div>
           </div>
 
-          {/* Data Management */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
             <h2 className="text-xl font-semibold mb-4 text-accent">Data Management</h2>
             <div className="space-y-4">
@@ -206,7 +198,6 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
             </div>
           </div>
 
-          {/* Keyboard Shortcuts */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
             <h2 className="text-xl font-semibold mb-4 text-accent">Keyboard Shortcuts</h2>
             <div className="space-y-1 text-sm divide-y divide-border-color">
@@ -236,7 +227,6 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
             </div>
           </div>
 
-          {/* Information */}
           <div className="p-6 bg-surface rounded-xl shadow-md">
             <h2 className="text-xl font-semibold mb-2 text-accent">Information</h2>
             {appSettings?.lastRootPath && (

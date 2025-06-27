@@ -26,6 +26,7 @@ import { ContextMenuProvider, useContextMenu } from './context/ContextMenuContex
 import CreateFolderModal from './components/modals/CreateFolderModal';
 import RenameFolderModal from './components/modals/RenameFolderModal';
 import ConfirmModal from './components/modals/ConfirmModal';
+import { THEMES, DEFAULT_THEME_ID } from './themes';
 
 const DEBUG = false;
 
@@ -175,7 +176,7 @@ function App() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isFullScreenLoading, setIsFullScreenLoading] = useState(false);
   const [fullScreenUrl, setFullScreenUrl] = useState(null);
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(DEFAULT_THEME_ID);
   const [activeRightPanel, setActiveRightPanel] = useState('adjustments');
   const [activeMaskId, setActiveMaskId] = useState(null);
   const [zoom, setZoom] = useState(1);
@@ -304,19 +305,23 @@ function App() {
       })
       .catch(err => {
         console.error("Failed to load settings:", err);
-        setAppSettings({ lastRootPath: null, theme: 'dark' });
+        setAppSettings({ lastRootPath: null, theme: DEFAULT_THEME_ID });
       })
       .finally(() => { isInitialMount.current = false; });
   }, []);
 
   useEffect(() => {
     const root = document.documentElement;
-    const newTheme = theme || 'dark';
+    const newThemeId = theme || DEFAULT_THEME_ID;
+    const selectedTheme = THEMES.find(t => t.id === newThemeId) || THEMES.find(t => t.id === DEFAULT_THEME_ID);
 
-    root.classList.remove('theme-dark', 'theme-light', 'theme-muted-green');
-    root.classList.add(`theme-${newTheme}`);
-    
-    invoke('update_window_effect', { theme: newTheme });
+    if (selectedTheme) {
+      Object.entries(selectedTheme.cssVariables).forEach(([key, value]) => {
+        root.style.setProperty(key, value);
+      });
+      
+      invoke('update_window_effect', { theme: newThemeId });
+    }
   }, [theme]);
 
   useEffect(() => {

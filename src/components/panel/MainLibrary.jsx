@@ -12,6 +12,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import Button from '../ui/Button';
 import SettingsPanel from './SettingsPanel';
+import { THEMES, DEFAULT_THEME_ID } from '../../themes';
 
 const sortOptions = [
   { key: 'name', order: 'asc', label: 'File Name (A-Z)' },
@@ -178,26 +179,9 @@ export default function MainLibrary({
   const prevFolderPathRef = useRef();
   const isNewFolder = currentFolderPath !== prevFolderPathRef.current;
 
-  const [splashImage, setSplashImage] = useState('/splash-dark.jpg');
-
   useEffect(() => {
     prevFolderPathRef.current = currentFolderPath;
   }, [currentFolderPath]);
-
-  useEffect(() => {
-    switch (theme) {
-      case 'light':
-        setSplashImage('/splash-light.jpg');
-        break;
-      case 'muted-green':
-        setSplashImage('/splash-green.jpg');
-        break;
-      case 'dark':
-      default:
-        setSplashImage('/splash-dark.jpg');
-        break;
-    }
-  }, [theme]);
 
   if (!rootPath) {
     if (!appSettings) {
@@ -211,6 +195,9 @@ export default function MainLibrary({
     }
 
     const hasLastPath = !!appSettings.lastRootPath;
+    const currentThemeId = theme || DEFAULT_THEME_ID;
+    const selectedTheme = THEMES.find(t => t.id === currentThemeId) || THEMES.find(t => t.id === DEFAULT_THEME_ID);
+    const splashImage = selectedTheme.splashImage;
 
     return (
       <div className="flex-1 flex h-full rounded-lg bg-bg-secondary overflow-hidden shadow-lg">

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import Button from '../ui/Button';
 import ConfirmModal from '../modals/ConfirmModal';
 import Dropdown from '../ui/Dropdown';
+import { THEMES, DEFAULT_THEME_ID } from '../../themes';
 
 const resolutions = [
   { value: 720, label: '720px' },
@@ -11,12 +12,6 @@ const resolutions = [
   { value: 1920, label: '1920px' },
   { value: 2560, label: '2560px' },
   { value: 3840, label: '3840px' },
-];
-
-const themes = [
-  { value: 'dark', label: 'Dark' },
-  { value: 'light', label: 'Light' },
-  { value: 'muted-green', label: 'Muted Green' },
 ];
 
 const KeybindItem = ({ keys, description }) => (
@@ -136,8 +131,8 @@ export default function SettingsPanel({ onBack, appSettings, onSettingsChange, r
                   Theme
                 </label>
                 <Dropdown
-                  options={themes}
-                  value={appSettings?.theme || 'dark'}
+                  options={THEMES.map(theme => ({ value: theme.id, label: theme.name }))}
+                  value={appSettings?.theme || DEFAULT_THEME_ID}
                   onChange={(value) => onSettingsChange({ ...appSettings, theme: value })}
                 />
                 <p className="text-xs text-text-secondary mt-2">

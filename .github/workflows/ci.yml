@@ -1,13 +1,18 @@
-name: 'Release: Build & Package App'
+name: 'CI'
+
+concurrency:
+  group: ci-${{ github.run_id }}
+  cancel-in-progress: true
 
 on:
-  release:
-    types: [created]
+  pull_request_target:
+    types: [opened, edited, synchronize]
+  push:
+    branches:
+      - main
 
 jobs:
-  release:
-    permissions:
-      contents: write
+  pr-ci:
     strategy:
       fail-fast: false
       matrix:
@@ -15,6 +20,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -29,6 +35,7 @@ jobs:
 
       - name: Install additional system dependencies
         if: ${{ matrix.platform == 'ubuntu-22.04' }}
+        run: |-
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
@@ -51,10 +58,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build and release with tauri-action
+      - name: Build with tauri-action
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.platform == 'windows-latest' && '--bundles nsis' || '' }}

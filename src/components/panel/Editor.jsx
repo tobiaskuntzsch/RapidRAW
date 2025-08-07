@@ -359,6 +359,8 @@ export default function Editor({
           canUndo={canUndo}
           canRedo={canRedo}
           isLoadingFullRes={isLoadingFullRes}
+          isWaveformVisible={isWaveformVisible}
+          onToggleWaveform={onToggleWaveform}
         />
 
         <div 

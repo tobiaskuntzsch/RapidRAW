@@ -93,6 +93,53 @@ function App() {
   const [activeAiPatchContainerId, setActiveAiPatchContainerId] = useState(null);
   const [activeAiSubMaskId, setActiveAiSubMaskId] = useState(null);
   const [zoom, setZoom] = useState(1);
+  const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
+  const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 });
+  const [baseRenderSize, setBaseRenderSize] = useState({ width: 0, height: 0 });
+  const [originalSize, setOriginalSize] = useState({ width: 0, height: 0 });
+  const [isFullResolution, setIsFullResolution] = useState(false);
+  const [fullResolutionUrl, setFullResolutionUrl] = useState(null);
+  const [isLoadingFullRes, setIsLoadingFullRes] = useState(false);
+  const fullResRequestRef = useRef(null);
+
+  // Track display size changes for zoom calculations
+  const handleDisplaySizeChange = useCallback((size) => {
+    setDisplaySize({ width: size.width, height: size.height });
+    
+    if (size.scale) {
+      const baseWidth = size.width / size.scale;
+      const baseHeight = size.height / size.scale;
+      setBaseRenderSize({ width: baseWidth, height: baseHeight });
+    }
+  }, []);
+
+  const [initialFitScale, setInitialFitScale] = useState(null);
+
+  // Initialize size tracking when image changes
+  useEffect(() => {
+    if (selectedImage && appSettings?.editorPreviewResolution) {
+      setOriginalSize({ width: selectedImage.width, height: selectedImage.height });
+      
+      const maxSize = appSettings.editorPreviewResolution;
+      const aspectRatio = selectedImage.width / selectedImage.height;
+      
+      if (selectedImage.width > selectedImage.height) {
+        const width = Math.min(selectedImage.width, maxSize);
+        const height = Math.round(width / aspectRatio);
+        setPreviewSize({ width, height });
+      } else {
+        const height = Math.min(selectedImage.height, maxSize);
+        const width = Math.round(height * aspectRatio);
+        setPreviewSize({ width, height });
+      }
+      
+      setIsFullResolution(false);
+      setFullResolutionUrl(null);
+    } else {
+      setPreviewSize({ width: 0, height: 0 });
+      setOriginalSize({ width: 0, height: 0 });
+    }
+  }, [selectedImage, appSettings?.editorPreviewResolution]);
   const [renderedRightPanel, setRenderedRightPanel] = useState(activeRightPanel);
   const [collapsibleSectionsState, setCollapsibleSectionsState] = useState({ basic: true, curves: true, color: false, details: false, effects: false });
   const [isLibraryExportPanelVisible, setIsLibraryExportPanelVisible] = useState(false);
@@ -908,11 +955,104 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
     }
   }, [copiedFilePaths, currentFolderPath, handleLibraryRefresh]);
 
-  const handleZoomChange = useCallback((newZoomValue) => {
-    isProgrammaticZoom.current = true;
-    setZoom(newZoomValue);
-  }, []);
+  // Request full resolution preview when zoomed in
+  const requestFullResolution = useCallback(
+    debounce((currentAdjustments) => {
+      if (!selectedImage?.path) return;
+      
+      if (fullResRequestRef.current) {
+        fullResRequestRef.current.cancelled = true;
+      }
+      
+      const request = { cancelled: false };
+      fullResRequestRef.current = request;
+      
+      invoke('generate_fullscreen_preview', {
+        jsAdjustments: currentAdjustments
+      }).then(fullResUrl => {
+        if (!request.cancelled) {
+          setFullResolutionUrl(fullResUrl);
+          setIsFullResolution(true);
+          setIsLoadingFullRes(false);
+        }
+      }).catch(error => {
+        if (!request.cancelled) {
+          console.error('Failed to generate full resolution preview:', error);
+          setIsFullResolution(false);
+          setFullResolutionUrl(null);
+          setIsLoadingFullRes(false);
+        }
+      });
+    }, 300),
+    [selectedImage?.path]
+  );
+  
+  // Regenerate full resolution when adjustments change while zoomed
+  useEffect(() => {
+    if (isFullResolution && selectedImage?.path) {
+      setFullResolutionUrl(null);
+      setIsLoadingFullRes(true);
+      requestFullResolution(adjustments);
+    }
+  }, [adjustments, isFullResolution, selectedImage?.path, requestFullResolution]);
 
+  // Handle zoom changes with percentage relative to original image size
+  const handleZoomChange = useCallback((input) => {
+    let targetZoomPercent = input;
+    
+    if (input === 'fit-to-window') {
+      if (originalSize.width > 0 && originalSize.height > 0 && baseRenderSize.width > 0 && baseRenderSize.height > 0) {
+        const originalAspect = originalSize.width / originalSize.height;
+        const baseAspect = baseRenderSize.width / baseRenderSize.height;
+        
+        if (originalAspect > baseAspect) {
+          targetZoomPercent = baseRenderSize.width / originalSize.width;
+        } else {
+          targetZoomPercent = baseRenderSize.height / originalSize.height;
+        }
+      } else {
+        targetZoomPercent = 1.0;
+      }
+    }
+    
+    targetZoomPercent = Math.max(0.1, Math.min(2.0, targetZoomPercent));
+    
+    let transformZoom = 1.0;
+    if (originalSize.width > 0 && originalSize.height > 0 && baseRenderSize.width > 0 && baseRenderSize.height > 0) {
+      const originalAspect = originalSize.width / originalSize.height;
+      const baseAspect = baseRenderSize.width / baseRenderSize.height;
+      
+      if (originalAspect > baseAspect) {
+        transformZoom = (targetZoomPercent * originalSize.width) / baseRenderSize.width;
+      } else {
+        transformZoom = (targetZoomPercent * originalSize.height) / baseRenderSize.height;
+      }
+    }
+    
+    isProgrammaticZoom.current = true;
+    setZoom(transformZoom);
+    
+    const needsFullRes = targetZoomPercent > 0.5;
+    const currentDisplayWidth = baseRenderSize.width * transformZoom;
+    const shouldUsePreview = previewSize.width > 0 && currentDisplayWidth <= previewSize.width;
+    
+    if (needsFullRes && !isFullResolution && !shouldUsePreview) {
+      if (!isLoadingFullRes) {
+        setIsLoadingFullRes(true);
+        requestFullResolution(adjustments);
+      }
+    } else if (!needsFullRes && isFullResolution) {
+      if (fullResRequestRef.current) {
+        fullResRequestRef.current.cancelled = true;
+      }
+      requestFullResolution.cancel?.();
+      setIsFullResolution(false);
+      setFullResolutionUrl(null);
+      setIsLoadingFullRes(false);
+    }
+  }, [originalSize, baseRenderSize, previewSize, isFullResolution, isLoadingFullRes, requestFullResolution]);
+
+  // Handle manual zoom via mouse/trackpad
   const handleUserTransform = useCallback((transformState) => {
     if (isProgrammaticZoom.current) {
       isProgrammaticZoom.current = false;
@@ -920,7 +1060,28 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
     }
 
     setZoom(transformState.scale);
-  }, []);
+
+    if (originalSize.width > 0 && baseRenderSize.width > 0) {
+      const targetZoomPercent = (baseRenderSize.width * transformState.scale) / originalSize.width;
+      const currentDisplayWidth = baseRenderSize.width * transformState.scale;
+      const shouldUsePreview = previewSize.width > 0 && currentDisplayWidth <= previewSize.width;
+      const needsFullRes = targetZoomPercent > 0.5;
+      
+      if (needsFullRes && !isFullResolution && !shouldUsePreview) {
+        if (!isLoadingFullRes) {
+          setIsLoadingFullRes(true);
+          requestFullResolution(adjustments);
+        }
+      } else if (!needsFullRes && isFullResolution) {
+        if (fullResRequestRef.current) {
+          fullResRequestRef.current.cancelled = true;
+        }
+        setIsFullResolution(false);
+        setFullResolutionUrl(null);
+        setIsLoadingFullRes(false);
+      }
+    }
+  }, [originalSize, baseRenderSize, previewSize, isFullResolution, isLoadingFullRes, requestFullResolution]);
 
   const handleImageSelect = useCallback((path) => {
     if (selectedImage?.path === path) return;
@@ -954,6 +1115,11 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
     multiSelectedPaths,
     libraryActivePath,
     zoom,
+    initialFitScale,
+    previewSize,
+    displaySize,
+    baseRenderSize,
+    originalSize,
     canUndo,
     canRedo,
     activeRightPanel,
@@ -1704,6 +1870,14 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
               brushSettings={brushSettings}
               onGenerateAiMask={handleGenerateAiMask}
               isMaskControlHovered={isMaskControlHovered}
+              onDisplaySizeChange={handleDisplaySizeChange}
+              onInitialFitScale={setInitialFitScale}
+              onZoomChange={handleZoomChange}
+              originalSize={originalSize}
+              baseRenderSize={baseRenderSize}
+              isFullResolution={isFullResolution}
+              fullResolutionUrl={fullResolutionUrl}
+              isLoadingFullRes={isLoadingFullRes}
             />
             <Resizer onMouseDown={createResizeHandler(setBottomPanelHeight, bottomPanelHeight)} direction="horizontal" />
             <BottomBar
@@ -1718,8 +1892,9 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
               isPasteDisabled={copiedAdjustments === null}
               zoom={zoom}
               onZoomChange={handleZoomChange}
-              minZoom={0.7}
-              maxZoom={10}
+              displaySize={displaySize}
+              originalSize={originalSize}
+              baseRenderSize={baseRenderSize}
               imageList={sortedImageList}
               selectedImage={selectedImage}
               onImageSelect={handleImageClick}

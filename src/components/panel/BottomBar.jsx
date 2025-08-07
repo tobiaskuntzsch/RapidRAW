@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check, Save } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Star, Copy, ClipboardPaste, RotateCcw, ChevronUp, ChevronDown, Check, Save, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import Filmstrip from './Filmstrip';
 
@@ -46,8 +46,9 @@ export default function BottomBar({
   isCopyDisabled,
   zoom,
   onZoomChange,
-  minZoom,
-  maxZoom,
+  displaySize,
+  originalSize,
+  baseRenderSize,
   imageList,
   selectedImage,
   onImageSelect,
@@ -69,14 +70,33 @@ export default function BottomBar({
 }) {
   const [sliderValue, setSliderValue] = useState(zoom);
   const [isZoomLabelHovered, setIsZoomLabelHovered] = useState(false);
+  const [isEditingPercent, setIsEditingPercent] = useState(false);
+  const [percentInputValue, setPercentInputValue] = useState('');
   const isDraggingSlider = useRef(false);
   const syncTimeoutRef = useRef(null);
+  const percentInputRef = useRef(null);
+
+  // Zoom calculation and ready check
+  const isZoomReady = originalSize && originalSize.width > 0 && displaySize && displaySize.width > 0;
+  const currentOriginalPercent = isZoomReady ? (displaySize.width / originalSize.width) : 1.0;
+  const displayPercent = isZoomReady ? Math.round(currentOriginalPercent * 100) : 100;
 
   useEffect(() => {
     if (!isDraggingSlider.current) {
-      setSliderValue(zoom);
+      setSliderValue(currentOriginalPercent);
     }
-  }, [zoom]);
+  }, [currentOriginalPercent]);
+
+  // Reset dragging state after a short delay if no mouse events (no jumping ball ;-) )
+  useEffect(() => {
+    const resetDragging = setTimeout(() => {
+      if (isDraggingSlider.current) {
+        isDraggingSlider.current = false;
+      }
+    }, 1000);
+
+    return () => clearTimeout(resetDragging);
+  }, [currentOriginalPercent]);
 
   useEffect(() => {
     return () => {
@@ -101,9 +121,6 @@ export default function BottomBar({
 
   const handleMouseUp = () => {
     isDraggingSlider.current = false;
-    syncTimeoutRef.current = setTimeout(() => {
-      setSliderValue(zoom);
-    }, 300);
   };
 
   const handleZoomKeyDown = (e) => {
@@ -118,8 +135,47 @@ export default function BottomBar({
   };
 
   const handleResetZoom = () => {
-    onZoomChange(1);
+    onZoomChange('fit-to-window');
   };
+
+  const handlePercentClick = () => {
+    if (!isZoomReady) return;
+    setIsEditingPercent(true);
+    setPercentInputValue(displayPercent.toString());
+    setTimeout(() => {
+      if (percentInputRef.current) {
+        percentInputRef.current.focus();
+        percentInputRef.current.select();
+      }
+    }, 0);
+  };
+
+  const handlePercentSubmit = () => {
+    const value = parseFloat(percentInputValue);
+    if (!isNaN(value)) {
+      const originalPercent = value / 100;
+      const clampedPercent = Math.max(0.1, Math.min(2.0, originalPercent));
+      onZoomChange(clampedPercent);
+    }
+    setIsEditingPercent(false);
+    setPercentInputValue('');
+  };
+
+  const handlePercentKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handlePercentSubmit();
+    } else if (e.key === 'Escape') {
+      setIsEditingPercent(false);
+      setPercentInputValue('');
+    }
+    e.stopPropagation();
+  };
+
+  const handlePercentBlur = () => {
+    handlePercentSubmit();
+  };
+
+  
 
   return (
     <div className="flex-shrink-0 bg-bg-secondary rounded-lg flex flex-col">
@@ -209,7 +265,7 @@ export default function BottomBar({
                 onMouseEnter={() => setIsZoomLabelHovered(true)}
                 onMouseLeave={() => setIsZoomLabelHovered(false)}
                 onClick={handleResetZoom}
-                title="Reset Zoom to 100%"
+                title="Reset Zoom to Fit Window"
               >
                 <span className="absolute right-0 text-xs text-text-secondary select-none text-right w-max transition-colors hover:text-text-primary">
                   {isZoomLabelHovered ? 'Reset Zoom' : 'Zoom'}
@@ -217,17 +273,49 @@ export default function BottomBar({
               </div>
               <input
                 type="range"
-                min={minZoom}
-                max={maxZoom}
+                min={0.1}
+                max={2.0}
                 step="0.05"
-                value={sliderValue}
+                value={isZoomReady ? sliderValue : 0.1}
                 onChange={handleSliderChange}
                 onMouseDown={handleMouseDown}
                 onMouseUp={handleMouseUp}
+                onTouchStart={handleMouseDown}
+                onTouchEnd={handleMouseUp}
+                onDoubleClick={handleResetZoom}
                 onKeyDown={handleZoomKeyDown}
                 className="flex-1 h-1 bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
+                disabled={!isZoomReady}
+                style={{ opacity: isZoomReady ? 1 : 0.3 }}
               />
-              <span className="text-xs text-text-secondary w-10 text-right">{(sliderValue * 100).toFixed(0)}%</span>
+              <div className="relative text-xs text-text-secondary w-20 text-right flex items-center justify-end h-5 gap-1">
+                {isZoomReady ? (
+                  <>
+                    {isEditingPercent ? (
+                      <input
+                        ref={percentInputRef}
+                        type="text"
+                        value={percentInputValue}
+                        onChange={(e) => setPercentInputValue(e.target.value)}
+                        onKeyDown={handlePercentKeyDown}
+                        onBlur={handlePercentBlur}
+                        className="w-full text-xs text-text-primary bg-bg-primary border border-border-color rounded px-1 text-right"
+                        style={{ fontSize: '12px', height: '18px' }}
+                      />
+                    ) : (
+                      <span 
+                        onClick={handlePercentClick}
+                        className="cursor-pointer hover:text-text-primary transition-colors select-none"
+                        title="Click to enter custom zoom percentage"
+                      >
+                        {displayPercent}%
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <Loader2 size={12} className="animate-spin" />
+                )}
+              </div>
             </div>
             <button
               onClick={() => setIsFilmstripVisible(!isFilmstripVisible)}

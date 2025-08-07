@@ -23,6 +23,7 @@ export default function Editor({
   onUndo, onRedo, canUndo, canRedo, brushSettings,
   onGenerateAiMask, isMaskControlHovered,
   targetZoom, waveform, isWaveformVisible, onCloseWaveform, isStraightenActive, onStraighten,
+  onDisplaySizeChange, onInitialFitScale, onZoomChange, originalSize, baseRenderSize, isFullResolution, fullResolutionUrl, isLoadingFullRes,
 }) {
   const [crop, setCrop] = useState();
   const prevCropParams = useRef(null);
@@ -91,6 +92,41 @@ export default function Editor({
   }, [selectedImage, adjustments.crop, adjustments.orientationSteps]);
 
   const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions);
+
+  // Calculate zoom limits relative to original image size
+  const transformConfig = useMemo(() => {
+    if (!selectedImage || !imageRenderSize.width || !originalSize.width) {
+      return { minScale: 0.1, maxScale: 20 };
+    }
+    
+    const originalWidth = originalSize.width;
+    const baseRenderWidth = imageRenderSize.width;
+    
+    const minTransformScale = (0.1 * originalWidth) / baseRenderWidth;
+    const maxTransformScale = (2.0 * originalWidth) / baseRenderWidth;
+    
+    return { 
+      minScale: Math.max(0.1, minTransformScale), 
+      maxScale: Math.max(20, maxTransformScale)
+    };
+  }, [selectedImage, imageRenderSize.width, originalSize]);
+
+  useEffect(() => {
+    if (onDisplaySizeChange && imageRenderSize.width > 0) {
+      const currentDisplaySize = {
+        width: imageRenderSize.width * transformState.scale,
+        height: imageRenderSize.height * transformState.scale,
+        scale: transformState.scale
+      };
+      onDisplaySizeChange(currentDisplaySize);
+    }
+  }, [imageRenderSize, transformState.scale, onDisplaySizeChange]);
+
+  useEffect(() => {
+    if (onInitialFitScale && imageRenderSize.scale > 0) {
+      onInitialFitScale(imageRenderSize.scale);
+    }
+  }, [imageRenderSize.scale, onInitialFitScale]);
 
   const debouncedGenerateMaskOverlay = useCallback(debounce(async (maskDef, renderSize) => {
     if (!maskDef || !maskDef.visible || renderSize.width === 0) {
@@ -237,18 +273,41 @@ export default function Editor({
 
   const toggleShowOriginal = useCallback(() => setShowOriginal(prev => !prev), [setShowOriginal]);
 
-  const doubleClickProps = useMemo(() => {
-    if (isCropping || isMasking || isAiEditing) {
-      return { 
-        disabled: true,
-      };
-    }
-    return {
-      mode: transformState.scale >= 2 ? 'reset' : 'zoomIn',
-      animationTime: 200,
-      animationType: 'easeOut',
+
+
+  // Handle double-click zoom cycling (same logic as spacebar)
+  const handleDoubleClick = useCallback(() => {
+    if (isCropping || isMasking || isAiEditing) return;
+    
+    const currentDisplaySize = {
+      width: imageRenderSize.width * transformState.scale,
+      height: imageRenderSize.height * transformState.scale
     };
-  }, [isCropping, isMasking, isAiEditing, transformState.scale]);  
+    
+    const currentPercent = originalSize.width > 0 && currentDisplaySize.width > 0 
+      ? Math.round((currentDisplaySize.width / originalSize.width) * 100)
+      : 100;
+      
+    let fitPercent = 100;
+    if (originalSize.width > 0 && originalSize.height > 0 && baseRenderSize.width > 0 && baseRenderSize.height > 0) {
+      const originalAspect = originalSize.width / originalSize.height;
+      const baseAspect = baseRenderSize.width / baseRenderSize.height;
+      
+      if (originalAspect > baseAspect) {
+        fitPercent = Math.round((baseRenderSize.width / originalSize.width) * 100);
+      } else {
+        fitPercent = Math.round((baseRenderSize.height / originalSize.height) * 100);
+      }
+    }
+    
+    if (Math.abs(currentPercent - fitPercent) < 5) {
+      onZoomChange(1.0);
+    } else if (Math.abs(currentPercent - 100) < 5) {
+      onZoomChange(2.0);
+    } else {
+      onZoomChange('fit-to-window');
+    }
+  }, [isCropping, isMasking, isAiEditing, transformState.scale, originalSize, imageRenderSize, baseRenderSize, onZoomChange]);  
 
   if (!selectedImage) {
     return (
@@ -299,6 +358,7 @@ export default function Editor({
           onRedo={onRedo}
           canUndo={canUndo}
           canRedo={canRedo}
+          isLoadingFullRes={isLoadingFullRes}
         />
 
         <div 
@@ -315,21 +375,26 @@ export default function Editor({
             </div>
           )}
 
+
           <TransformWrapper
             key={selectedImage.path}
             ref={transformWrapperRef}
-            minScale={0.7}
-            maxScale={10}
+            minScale={transformConfig.minScale}
+            maxScale={transformConfig.maxScale}
             limitToBounds={true}
             centerZoomedOut={true}
-            doubleClick={doubleClickProps}
+            doubleClick={{ disabled: true }}
             panning={{ disabled: isPanningDisabled }}
             onTransformed={(_, state) => {
               setTransformState(state);
               onZoomed(state);
             }}
           >
-            <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TransformComponent 
+              wrapperStyle={{ width: '100%', height: '100%' }} 
+              contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <div onDoubleClick={handleDoubleClick} style={{ width: '100%', height: '100%' }}>
               <ImageCanvas
                 isCropping={isCropping}
                 crop={crop}
@@ -341,6 +406,9 @@ export default function Editor({
                 imageRenderSize={imageRenderSize}
                 showOriginal={showOriginal}
                 finalPreviewUrl={finalPreviewUrl}
+                fullResolutionUrl={fullResolutionUrl}
+                isFullResolution={isFullResolution}
+                isLoadingFullRes={isLoadingFullRes}
                 isAdjusting={isAdjusting}
                 uncroppedAdjustedPreviewUrl={uncroppedAdjustedPreviewUrl}
                 maskOverlayUrl={maskOverlayUrl}
@@ -360,6 +428,7 @@ export default function Editor({
                 isStraightenActive={isStraightenActive}
                 onStraighten={onStraighten}
               />
+              </div>
             </TransformComponent>
           </TransformWrapper>
         </div>

@@ -7,6 +7,9 @@ export const useKeyboardShortcuts = ({
   multiSelectedPaths,
   libraryActivePath,
   zoom,
+  displaySize,
+  baseRenderSize,
+  originalSize,
   canUndo,
   canRedo,
   activeRightPanel,
@@ -71,10 +74,33 @@ export const useKeyboardShortcuts = ({
         }
         if (key === ' ' && !isCtrl) {
             event.preventDefault();
-            if (Math.abs(zoom - 2) < 0.01) {
-                handleZoomChange(1);
+            
+            // Calculate current zoom percentage relative to original
+            const currentPercent = originalSize.width > 0 && displaySize.width > 0 
+                ? Math.round((displaySize.width / originalSize.width) * 100)
+                : 100;
+            
+            // Toggle between fit-to-window, 100%, and 200%
+            let fitPercent = 100;
+            if (originalSize.width > 0 && originalSize.height > 0 && baseRenderSize.width > 0 && baseRenderSize.height > 0) {
+                const originalAspect = originalSize.width / originalSize.height;
+                const baseAspect = baseRenderSize.width / baseRenderSize.height;
+                
+                if (originalAspect > baseAspect) {
+                    // Width is limiting (landscape)
+                    fitPercent = Math.round((baseRenderSize.width / originalSize.width) * 100);
+                } else {
+                    // Height is limiting (portrait)
+                    fitPercent = Math.round((baseRenderSize.height / originalSize.height) * 100);
+                }
+            }
+            
+            if (Math.abs(currentPercent - fitPercent) < 5) {
+                handleZoomChange(1.0);
+            } else if (Math.abs(currentPercent - 100) < 5) {
+                handleZoomChange(2.0);
             } else {
-                handleZoomChange(2);
+                handleZoomChange('fit-to-window');
             }
             return;
         }
@@ -94,10 +120,19 @@ export const useKeyboardShortcuts = ({
 
         if (selectedImage) {
             if (key === 'arrowup' || key === 'arrowdown') {
-                const zoomStep = 0.25;
-                const newZoom = key === 'arrowup' ? zoom + zoomStep : zoom - zoomStep;
-                const minZoom = activeRightPanel === 'crop' ? 0.4 : 0.7;
-                handleZoomChange(Math.max(minZoom, Math.min(newZoom, 10)));
+                // Calculate current zoom percentage relative to original
+                const currentPercent = originalSize.width > 0 && displaySize.width > 0 
+                    ? (displaySize.width / originalSize.width)
+                    : 1.0;
+                
+                const step = 0.1; // 10% steps
+                const newPercent = key === 'arrowup' 
+                    ? currentPercent + step 
+                    : currentPercent - step;
+                
+                // Clamp to 10%-200% of original size
+                const clampedPercent = Math.max(0.1, Math.min(newPercent, 2.0));
+                handleZoomChange(clampedPercent);
             } else {
                 const isNext = key === 'arrowright';
                 const currentIndex = sortedImageList.findIndex(img => img.path === selectedImage.path);

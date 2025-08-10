@@ -1059,14 +1059,18 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
         setIsLoadingFullRes(true);
         requestFullResolution(adjustments);
       }
-    } else if (!needsFullRes && isFullResolution) {
+    } else if ((!needsFullRes || shouldUsePreview)) {
       if (fullResRequestRef.current) {
         fullResRequestRef.current.cancelled = true;
       }
       requestFullResolution.cancel?.();
-      setIsFullResolution(false);
-      setFullResolutionUrl(null);
-      setIsLoadingFullRes(false);
+      if (isFullResolution) {
+        setIsFullResolution(false);
+        setFullResolutionUrl(null);
+      }
+      if (isLoadingFullRes) {
+        setIsLoadingFullRes(false);
+      }
     }
   }, [originalSize, baseRenderSize, previewSize, isFullResolution, isLoadingFullRes, requestFullResolution]);
 
@@ -1090,16 +1094,21 @@ const handleSetColorLabel = useCallback(async (color, paths) => {
           setIsLoadingFullRes(true);
           requestFullResolution(adjustments);
         }
-      } else if (!needsFullRes && isFullResolution) {
+      } else if ((!needsFullRes || shouldUsePreview)) {
         if (fullResRequestRef.current) {
           fullResRequestRef.current.cancelled = true;
         }
-        setIsFullResolution(false);
-        setFullResolutionUrl(null);
-        setIsLoadingFullRes(false);
+        requestFullResolution.cancel?.();
+        if (isFullResolution) {
+          setIsFullResolution(false);
+          setFullResolutionUrl(null);
+        }
+        if (isLoadingFullRes) {
+          setIsLoadingFullRes(false);
+        }
       }
     }
-  }, [originalSize, baseRenderSize, previewSize, isFullResolution, isLoadingFullRes, requestFullResolution]);
+  }, [originalSize, baseRenderSize, previewSize, isFullResolution, isLoadingFullRes, requestFullResolution, adjustments]);
 
   const handleImageSelect = useCallback((path) => {
     if (selectedImage?.path === path) return;

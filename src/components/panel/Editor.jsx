@@ -22,7 +22,7 @@ export default function Editor({
   onSelectMask, onSelectAiSubMask, updateSubMask, transformWrapperRef, onZoomed, onContextMenu,
   onUndo, onRedo, canUndo, canRedo, brushSettings,
   onGenerateAiMask, isMaskControlHovered,
-  targetZoom, waveform, isWaveformVisible, onCloseWaveform, isStraightenActive, onStraighten,
+  targetZoom, waveform, isWaveformVisible, onCloseWaveform, onToggleWaveform, isStraightenActive, onStraighten,
   onDisplaySizeChange, onInitialFitScale, onZoomChange, originalSize, baseRenderSize, isFullResolution, fullResolutionUrl, isLoadingFullRes,
 }) {
   const [crop, setCrop] = useState();
